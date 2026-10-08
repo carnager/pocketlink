@@ -12,7 +12,6 @@ PluginComponent {
 
     pluginId: "pocketlink"
     popoutWidth: 400
-    popoutHeight: 760
 
     property bool pluginPopoutVisible: false
     property var status: null
@@ -334,6 +333,31 @@ PluginComponent {
         }
     }
 
+    component SettingLabel: Column {
+        property string title
+        property string subtitle
+        property bool elideSubtitle: false
+
+        spacing: 2
+
+        StyledText {
+            width: parent.width
+            text: parent.title
+            font.pixelSize: Theme.fontSizeMedium
+            color: Theme.surfaceText
+        }
+
+        StyledText {
+            visible: parent.subtitle.length > 0
+            width: parent.width
+            text: parent.subtitle
+            font.pixelSize: Theme.fontSizeSmall
+            color: Theme.surfaceVariantText
+            elide: parent.elideSubtitle ? Text.ElideMiddle : Text.ElideNone
+            wrapMode: parent.elideSubtitle ? Text.NoWrap : Text.WordWrap
+        }
+    }
+
     horizontalBarPill: Component {
         Rectangle {
             width: 24
@@ -384,7 +408,7 @@ PluginComponent {
             property var parentPopout: null
 
             implicitWidth: root.popoutWidth
-            implicitHeight: root.popoutHeight
+            implicitHeight: Math.min(contentColumn.implicitHeight + Theme.spacingM * 2, 820)
 
             Connections {
                 target: popoutRoot.parentPopout
@@ -582,6 +606,11 @@ PluginComponent {
                         }
                     }
 
+                    Item {
+                        width: parent.width
+                        height: Theme.spacingS
+                    }
+
                     StyledRect {
                         width: parent.width
                         height: 1
@@ -590,6 +619,7 @@ PluginComponent {
 
                     StyledText {
                         width: parent.width
+                        topPadding: Theme.spacingS
                         text: "Settings"
                         font.pixelSize: Theme.fontSizeMedium
                         font.weight: Font.Bold
@@ -605,51 +635,77 @@ PluginComponent {
                         wrapMode: Text.WordWrap
                     }
 
+                    // Received files: label on the left, small outlined button on the right.
                     Item {
                         width: parent.width
-                        height: Math.max(folderText.implicitHeight, changeFolderButton.height)
+                        height: Math.max(folderLabel.implicitHeight, 32)
 
-                        Column {
-                            id: folderText
+                        SettingLabel {
+                            id: folderLabel
                             anchors.left: parent.left
-                            anchors.right: changeFolderButton.left
-                            anchors.rightMargin: Theme.spacingS
+                            anchors.right: changeButton.left
+                            anchors.rightMargin: Theme.spacingM
                             anchors.verticalCenter: parent.verticalCenter
-                            spacing: 2
+                            title: "Received files"
+                            subtitle: root.config ? root.config.downloads : "unavailable"
+                            elideSubtitle: true
+                        }
+
+                        Rectangle {
+                            id: changeButton
+                            readonly property bool usable: root.config !== null && !root.isOverridden("downloads")
+
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 72
+                            height: 30
+                            radius: 10
+                            color: changeArea.containsMouse && usable ? Theme.widgetBaseHoverColor : Theme.surfaceContainer
+                            border.color: Theme.outline
+                            border.width: 1
+                            opacity: usable ? 1 : 0.5
 
                             StyledText {
-                                width: parent.width
-                                text: "Received files"
-                                font.pixelSize: Theme.fontSizeMedium
+                                anchors.centerIn: parent
+                                text: "Change"
+                                font.pixelSize: Theme.fontSizeSmall
                                 color: Theme.surfaceText
                             }
 
-                            StyledText {
-                                width: parent.width
-                                text: root.config ? root.config.downloads : "unavailable"
-                                font.pixelSize: Theme.fontSizeSmall
-                                color: Theme.surfaceVariantText
-                                elide: Text.ElideMiddle
+                            MouseArea {
+                                id: changeArea
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                enabled: changeButton.usable
+                                cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                                onClicked: root.openFileBrowser(folderBrowserLoader)
                             }
-                        }
-
-                        DankButton {
-                            id: changeFolderButton
-                            anchors.right: parent.right
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: "Change"
-                            enabled: root.config !== null && !root.isOverridden("downloads")
-                            onClicked: root.openFileBrowser(folderBrowserLoader)
                         }
                     }
 
-                    DankToggle {
+                    Item {
                         width: parent.width
-                        text: "Sync desktop clipboard"
-                        description: "Copying on the desktop updates the phone's clipboard"
-                        checked: root.config ? root.config.clipboard : false
-                        enabled: root.config !== null && !root.isOverridden("clipboard")
-                        onToggled: checked => root.setConfig("clipboard", checked)
+                        height: Math.max(clipLabel.implicitHeight, clipToggle.height)
+
+                        SettingLabel {
+                            id: clipLabel
+                            anchors.left: parent.left
+                            anchors.right: clipToggle.left
+                            anchors.rightMargin: Theme.spacingM
+                            anchors.verticalCenter: parent.verticalCenter
+                            title: "Sync desktop clipboard"
+                            subtitle: "Copying on the desktop updates the phone"
+                        }
+
+                        DankToggle {
+                            id: clipToggle
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            hideText: true
+                            checked: root.config ? root.config.clipboard : false
+                            enabled: root.config !== null && !root.isOverridden("clipboard")
+                            onToggled: checked => root.setConfig("clipboard", checked)
+                        }
                     }
 
                     Repeater {
@@ -665,11 +721,9 @@ PluginComponent {
                             width: contentColumn.width
                             spacing: Theme.spacingXS
 
-                            StyledText {
+                            SettingLabel {
                                 width: parent.width
-                                text: callSetting.modelData.label
-                                font.pixelSize: Theme.fontSizeMedium
-                                color: Theme.surfaceText
+                                title: callSetting.modelData.label
                             }
 
                             Row {
@@ -688,7 +742,7 @@ PluginComponent {
                                         readonly property bool selected: root.config !== null && root.config[callSetting.modelData.key] === modelData.value
 
                                         width: (parent.width - Theme.spacingS * 2) / 3
-                                        height: 32
+                                        height: 30
                                         radius: 10
                                         color: selected ? Theme.primary : (optionArea.containsMouse ? Theme.widgetBaseHoverColor : Theme.surfaceContainer)
                                         border.color: selected ? Theme.primary : Theme.outline
@@ -721,21 +775,37 @@ PluginComponent {
                         width: parent.width
                         spacing: Theme.spacingXS
 
-                        StyledText {
+                        Item {
                             width: parent.width
-                            text: "Lowered volume (of the current volume)"
-                            font.pixelSize: Theme.fontSizeSmall
-                            color: Theme.surfaceVariantText
+                            height: volumeLabel.implicitHeight
+
+                            SettingLabel {
+                                id: volumeLabel
+                                anchors.left: parent.left
+                                anchors.right: volumeValue.left
+                                title: "Lowered volume"
+                                subtitle: "Share of the volume before the call"
+                            }
+
+                            StyledText {
+                                id: volumeValue
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: volumeSlider.value + "%"
+                                font.pixelSize: Theme.fontSizeMedium
+                                color: Theme.surfaceText
+                            }
                         }
 
                         DankSlider {
+                            id: volumeSlider
                             width: parent.width
                             minimum: 5
                             maximum: 90
                             step: 5
-                            leftIcon: "volume_down"
-                            rightIcon: "volume_up"
+                            showValue: false
                             value: root.config ? root.config.call_volume : 40
+                            onSliderValueChanged: newValue => value = newValue
                             onSliderDragFinished: finalValue => root.setConfig("call_volume", finalValue)
                         }
                     }
