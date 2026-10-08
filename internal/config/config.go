@@ -22,7 +22,8 @@ type Config struct {
 	Clipboard bool   `json:"clipboard"` // send desktop clipboard changes to phones
 
 	// What to do with desktop audio while the phone rings and during a call:
-	// "pause" media, "lower" the volume to CallVolume percent, or "none".
+	// "pause" media, "lower" the volume to CallVolume percent of what it
+	// was, or "none".
 	RingAction string `json:"ring_action"`
 	TalkAction string `json:"talk_action"`
 	CallVolume int    `json:"call_volume"`
@@ -46,7 +47,7 @@ func Defaults() Config {
 	if downloads == "" {
 		downloads = filepath.Join(xdg.Home, "Downloads")
 	}
-	return Config{Name: host, Listen: ":1764", Downloads: downloads, Clipboard: true, RingAction: "lower", TalkAction: "pause", CallVolume: 20}
+	return Config{Name: host, Listen: ":1764", Downloads: downloads, Clipboard: true, RingAction: "lower", TalkAction: "pause", CallVolume: 40}
 }
 
 // Load reads path, filling in defaults for anything missing.

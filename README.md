@@ -64,7 +64,7 @@ tether config clipboard false      # applies immediately
 tether config name laptop          # needs a daemon restart
 tether config ring_action lower    # while the phone rings: pause | lower | none
 tether config talk_action pause    # during a call: pause | lower | none
-tether config call_volume 15       # percent, for "lower"
+tether config call_volume 40       # "lower" turns the volume down to 40% of what it was
 ```
 
 ## Media remote and calls

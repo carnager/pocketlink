@@ -716,12 +716,28 @@ PluginComponent {
                         }
                     }
 
-                    StyledText {
+                    Column {
                         visible: root.config !== null && (root.config.ring_action === "lower" || root.config.talk_action === "lower")
                         width: parent.width
-                        text: "Lowered volume: " + (root.config ? root.config.call_volume : 0) + "% (tether config call_volume N)"
-                        font.pixelSize: Theme.fontSizeSmall
-                        color: Theme.surfaceVariantText
+                        spacing: Theme.spacingXS
+
+                        StyledText {
+                            width: parent.width
+                            text: "Lowered volume (of the current volume)"
+                            font.pixelSize: Theme.fontSizeSmall
+                            color: Theme.surfaceVariantText
+                        }
+
+                        DankSlider {
+                            width: parent.width
+                            minimum: 5
+                            maximum: 90
+                            step: 5
+                            leftIcon: "volume_down"
+                            rightIcon: "volume_up"
+                            value: root.config ? root.config.call_volume : 40
+                            onSliderDragFinished: finalValue => root.setConfig("call_volume", finalValue)
+                        }
                     }
 
                     StyledText {

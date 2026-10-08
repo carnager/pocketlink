@@ -28,8 +28,12 @@ const (
 	rootIface   = "org.mpris.MediaPlayer2"
 	playerIface = "org.mpris.MediaPlayer2.Player"
 
-	debounce   = 250 * time.Millisecond
-	maxArtSize = 5 << 20
+	debounce = 250 * time.Millisecond
+	// A hung player (seen with mpd's MPRIS bridge) would otherwise block for
+	// the bus's 25 second default on every call.
+	readTimeout = time.Second
+	cmdTimeout  = 2 * time.Second
+	maxArtSize  = 5 << 20
 )
 
 type Player struct {
@@ -181,7 +185,9 @@ func (w *Watcher) pickActive(players []Player) string {
 
 func (w *Watcher) readPlayers() []Player {
 	var names []string
-	if err := w.conn.BusObject().Call("org.freedesktop.DBus.ListNames", 0).Store(&names); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), readTimeout)
+	defer cancel()
+	if err := w.conn.BusObject().CallWithContext(ctx, "org.freedesktop.DBus.ListNames", 0).Store(&names); err != nil {
 		slog.Warn("media: listing players", "err", err)
 		return nil
 	}
@@ -206,14 +212,17 @@ func (w *Watcher) readPlayers() []Player {
 }
 
 func (w *Watcher) readPlayer(name string) (Player, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), readTimeout)
+	defer cancel()
 	obj := w.conn.Object(name, objPath)
 	var props map[string]dbus.Variant
-	if err := obj.Call("org.freedesktop.DBus.Properties.GetAll", 0, playerIface).Store(&props); err != nil {
+	if err := obj.CallWithContext(ctx, "org.freedesktop.DBus.Properties.GetAll", 0, playerIface).Store(&props); err != nil {
 		return Player{}, err
 	}
 	p := Player{ID: name, Volume: -1}
-	if v, err := obj.GetProperty(rootIface + ".Identity"); err == nil {
-		p.Name, _ = v.Value().(string)
+	var identity dbus.Variant
+	if obj.CallWithContext(ctx, "org.freedesktop.DBus.Properties.Get", 0, rootIface, "Identity").Store(&identity) == nil {
+		p.Name, _ = identity.Value().(string)
 	}
 	if p.Name == "" {
 		p.Name, _, _ = strings.Cut(strings.TrimPrefix(name, busPrefix), ".")
@@ -254,21 +263,26 @@ func (w *Watcher) Command(c Command) error {
 	if !strings.HasPrefix(c.Player, busPrefix) {
 		return fmt.Errorf("media: not a player: %q", c.Player)
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
+	defer cancel()
 	obj := w.conn.Object(c.Player, objPath)
+	call := func(method string, args ...any) error {
+		return obj.CallWithContext(ctx, playerIface+"."+method, 0, args...).Err
+	}
 	var err error
 	switch c.Action {
 	case "play_pause":
-		err = obj.Call(playerIface+".PlayPause", 0).Err
+		err = call("PlayPause")
 	case "play":
-		err = obj.Call(playerIface+".Play", 0).Err
+		err = call("Play")
 	case "pause":
-		err = obj.Call(playerIface+".Pause", 0).Err
+		err = call("Pause")
 	case "next":
-		err = obj.Call(playerIface+".Next", 0).Err
+		err = call("Next")
 	case "previous":
-		err = obj.Call(playerIface+".Previous", 0).Err
+		err = call("Previous")
 	case "seek":
-		err = obj.Call(playerIface+".Seek", 0, int64(c.Value*1000)).Err
+		err = call("Seek", int64(c.Value*1000))
 	case "set_position":
 		var track dbus.ObjectPath
 		for _, p := range w.State().Players {
@@ -279,9 +293,10 @@ func (w *Watcher) Command(c Command) error {
 		if !track.IsValid() {
 			return errors.New("media: player has no track id")
 		}
-		err = obj.Call(playerIface+".SetPosition", 0, track, int64(c.Value*1000)).Err
+		err = call("SetPosition", track, int64(c.Value*1000))
 	case "volume":
-		err = obj.SetProperty(playerIface+".Volume", dbus.MakeVariant(max(0, min(1, c.Value))))
+		err = obj.CallWithContext(ctx, "org.freedesktop.DBus.Properties.Set", 0,
+			playerIface, "Volume", dbus.MakeVariant(max(0, min(1, c.Value)))).Err
 	default:
 		return fmt.Errorf("media: unknown action %q", c.Action)
 	}
@@ -297,7 +312,7 @@ func (w *Watcher) Command(c Command) error {
 func (w *Watcher) PauseAll() []string {
 	var paused []string
 	for _, p := range w.readPlayers() {
-		if p.Status == "Playing" && w.conn.Object(p.ID, objPath).Call(playerIface+".Pause", 0).Err == nil {
+		if p.Status == "Playing" && w.callPlayer(p.ID, "Pause") == nil {
 			paused = append(paused, p.ID)
 		}
 	}
@@ -307,10 +322,16 @@ func (w *Watcher) PauseAll() []string {
 // Resume restarts the players PauseAll paused.
 func (w *Watcher) Resume(ids []string) {
 	for _, id := range ids {
-		if err := w.conn.Object(id, objPath).Call(playerIface+".Play", 0).Err; err != nil {
+		if err := w.callPlayer(id, "Play"); err != nil {
 			slog.Warn("media: resuming", "player", id, "err", err)
 		}
 	}
+}
+
+func (w *Watcher) callPlayer(id, method string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
+	defer cancel()
+	return w.conn.Object(id, objPath).CallWithContext(ctx, playerIface+"."+method, 0).Err
 }
 
 // Art returns the image behind an art key from the current state.

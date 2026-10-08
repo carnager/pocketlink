@@ -52,6 +52,7 @@ func newCalls(settings *settingsState, players *media.Watcher, sink *notify.Sink
 }
 
 func (c *calls) handle(dev pair.Device, ev proto.CallState) error {
+	slog.Info("call", "device", dev.Name, "event", ev.Event, "caller", callerName(ev))
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	cur := c.active[dev.ID]
@@ -132,25 +133,29 @@ func (c *calls) switchTo(cur *call, action string, volume int) {
 	switch action {
 	case "pause":
 		cur.quiet.paused = c.players.PauseAll()
+		slog.Info("call: paused media", "players", cur.quiet.paused)
 	case "lower":
 		cur.quiet.volume = lower(volume)
+		slog.Info("call: lowered volume", "to", volume, "restore", cur.quiet.volume)
 	}
 	c.restore(old)
 }
 
-// lower sets the output volume to percent, unless it is already lower, and
-// returns the volume to restore later ("" if nothing changed).
+// lower turns the output volume down to percent of what it is now, and
+// returns the volume to restore later ("" if nothing changed). Volumes are
+// on wpctl's cubic scale, so 50 is clearly quieter but still audible.
 func lower(percent int) string {
 	cur, err := sinkVolume()
 	if err != nil {
 		slog.Warn("reading volume", "err", err)
 		return ""
 	}
-	target := float64(percent) / 100
-	if v, err := strconv.ParseFloat(cur, 64); err != nil || v <= target {
+	v, err := strconv.ParseFloat(cur, 64)
+	if err != nil || percent >= 100 {
 		return ""
 	}
-	if err := setSinkVolume(strconv.FormatFloat(target, 'f', 2, 64)); err != nil {
+	target := v * float64(percent) / 100
+	if err := setSinkVolume(strconv.FormatFloat(target, 'f', 3, 64)); err != nil {
 		slog.Warn("lowering volume", "err", err)
 		return ""
 	}
@@ -158,6 +163,9 @@ func lower(percent int) string {
 }
 
 func (c *calls) restore(q quieting) {
+	if len(q.paused) > 0 || q.volume != "" {
+		slog.Info("call: restoring", "resume", q.paused, "volume", q.volume)
+	}
 	c.players.Resume(q.paused)
 	if q.volume != "" {
 		if err := setSinkVolume(q.volume); err != nil {
