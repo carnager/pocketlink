@@ -33,12 +33,12 @@ type response struct {
 
 type HandlerFunc func(Request) (any, error)
 
-// SocketPath is $TETHER_SOCKET if set, else $XDG_RUNTIME_DIR/tether.sock.
+// SocketPath is $POCKETLINK_SOCKET if set, else $XDG_RUNTIME_DIR/pocketlink.sock.
 func SocketPath() string {
-	if p := os.Getenv("TETHER_SOCKET"); p != "" {
+	if p := os.Getenv("POCKETLINK_SOCKET"); p != "" {
 		return p
 	}
-	return filepath.Join(xdg.RuntimeDir, "tether.sock")
+	return filepath.Join(xdg.RuntimeDir, "pocketlink.sock")
 }
 
 func Serve(ctx context.Context, path string, h HandlerFunc) error {
@@ -96,7 +96,7 @@ func serveConn(c net.Conn, h HandlerFunc) {
 func Call(req Request, out any) error {
 	c, err := net.DialTimeout("unix", SocketPath(), 2*time.Second)
 	if err != nil {
-		return fmt.Errorf("cannot reach daemon (is `tether daemon` running?): %w", err)
+		return fmt.Errorf("cannot reach daemon (is `pocketlink daemon` running?): %w", err)
 	}
 	defer c.Close()
 	c.SetDeadline(time.Now().Add(10 * time.Second))

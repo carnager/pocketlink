@@ -1,4 +1,4 @@
-package io.github.carnager.tether
+package io.github.carnager.pocketlink
 
 import android.Manifest
 import android.app.NotificationManager
@@ -154,7 +154,7 @@ class MainActivity : ComponentActivity() {
         links.start()
         LinkService.start(this)
         setContent {
-            TetherTheme {
+            PocketlinkTheme {
                 when (screen) {
                     Screen.MAIN -> MainScreen()
                     Screen.APPS -> {
@@ -189,13 +189,13 @@ class MainActivity : ComponentActivity() {
 
     private fun handleIntent(intent: Intent?) {
         val data = intent?.data ?: return
-        if (data.scheme == "tether") pair(data.toString())
+        if (data.scheme == "pocketlink") pair(data.toString())
     }
 
     private fun startScan() = scan.launch(
         ScanOptions()
             .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-            .setPrompt("Scan the code from the tether panel widget or `tether pair`")
+            .setPrompt("Scan the code from the pocketlink panel widget or `pocketlink pair`")
             .setBeepEnabled(false)
             .setCaptureActivity(PortraitCaptureActivity::class.java)
             .setOrientationLocked(true)
@@ -228,7 +228,7 @@ class MainActivity : ComponentActivity() {
 
         Scaffold(
             modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
-            topBar = { LargeTopAppBar(title = { Text("tether") }, scrollBehavior = scroll) },
+            topBar = { LargeTopAppBar(title = { Text("pocketlink") }, scrollBehavior = scroll) },
         ) { padding ->
             LazyColumn(
                 contentPadding = PaddingValues(
@@ -287,7 +287,7 @@ class MainActivity : ComponentActivity() {
             Column(Modifier.padding(24.dp)) {
                 StatusHeader(
                     Icons.Rounded.QrCodeScanner, c.onSecondaryContainer, "Pair with your computer",
-                    pairingNote ?: "Open the tether panel widget, or run tether pair, then scan the code it shows.",
+                    pairingNote ?: "Open the pocketlink panel widget, or run pocketlink pair, then scan the code it shows.",
                 )
                 if (pairingNote == "Pairing…") {
                     Spacer(Modifier.height(16.dp))
@@ -602,7 +602,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** "primary:Documents/tether" -> "Documents/tether". */
+    /** "primary:Documents/pocketlink" -> "Documents/pocketlink". */
     private fun folderLabel(tree: Uri): String =
         DocumentsContract.getTreeDocumentId(tree).substringAfter(':').ifEmpty { "Storage root" }
 

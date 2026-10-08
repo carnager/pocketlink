@@ -1,4 +1,4 @@
-package io.github.carnager.tether
+package io.github.carnager.pocketlink
 
 import android.app.Activity
 import androidx.activity.ComponentActivity
@@ -40,7 +40,7 @@ import android.util.Log
 import android.widget.Toast
 import org.json.JSONObject
 
-private const val TAG = "tether"
+private const val TAG = "pocketlink"
 
 class App : Application() {
     override fun onCreate() {
@@ -71,7 +71,7 @@ object Notifs {
 object Clip {
     /** Sets the phone clipboard. Apps may write it from the background. */
     fun set(ctx: Context, text: String) = Handler(Looper.getMainLooper()).post {
-        ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("tether", text))
+        ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("pocketlink", text))
     }
 
     /**
@@ -150,8 +150,8 @@ class LinkService : Service() {
     }
 
     companion object {
-        const val ACTION_SHARE = "io.github.carnager.tether.SHARE"
-        const val EXTRA_TARGETS = "io.github.carnager.tether.TARGETS"
+        const val ACTION_SHARE = "io.github.carnager.pocketlink.SHARE"
+        const val EXTRA_TARGETS = "io.github.carnager.pocketlink.TARGETS"
 
         fun start(ctx: Context) {
             if (!Links.get(ctx).isPaired) return
@@ -246,7 +246,7 @@ class ShareActivity : ComponentActivity() {
                 finish()
             }
             else -> setContent {
-                TetherTheme {
+                PocketlinkTheme {
                     AlertDialog(
                         onDismissRequest = ::finish,
                         title = { Text("Send to") },
@@ -310,7 +310,7 @@ class ShareActivity : ComponentActivity() {
     private fun toast(msg: String) = Toast.makeText(applicationContext, msg, Toast.LENGTH_SHORT).show()
 }
 
-/** Forwards a `tether://pair` link to the main screen. */
+/** Forwards a `pocketlink://pair` link to the main screen. */
 class PairLinkActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

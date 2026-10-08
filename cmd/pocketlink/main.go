@@ -1,4 +1,4 @@
-// Command tether is the desktop side of tether: a daemon that talks to
+// Command pocketlink is the desktop side of pocketlink: a daemon that talks to
 // paired phones, and a CLI that talks to the daemon.
 package main
 
@@ -17,13 +17,13 @@ import (
 	"github.com/mdp/qrterminal/v3"
 	"rsc.io/qr"
 
-	"github.com/carnager/tether/internal/clip"
-	"github.com/carnager/tether/internal/conn"
-	"github.com/carnager/tether/internal/control"
-	"github.com/carnager/tether/internal/pair"
+	"github.com/carnager/pocketlink/internal/clip"
+	"github.com/carnager/pocketlink/internal/conn"
+	"github.com/carnager/pocketlink/internal/control"
+	"github.com/carnager/pocketlink/internal/pair"
 )
 
-const usage = `usage: tether <command> [args]
+const usage = `usage: pocketlink <command> [args]
 
 commands:
   daemon            run the daemon (normally via systemd --user)
@@ -82,7 +82,7 @@ func main() {
 		os.Exit(2)
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "tether:", err)
+		fmt.Fprintln(os.Stderr, "pocketlink:", err)
 		os.Exit(1)
 	}
 }
@@ -112,7 +112,7 @@ func runPair(args []string) error {
 		return json.NewEncoder(os.Stdout).Encode(r)
 	}
 	qrterminal.GenerateHalfBlock(r.URI, qrterminal.L, os.Stdout)
-	fmt.Printf("\nScan with the tether app, or pass to tether-sim:\n%s\n\nValid until %s.\n",
+	fmt.Printf("\nScan with the pocketlink app, or pass to pocketlink-sim:\n%s\n\nValid until %s.\n",
 		r.URI, r.Expires.Format("15:04:05"))
 	return nil
 }
@@ -134,7 +134,7 @@ func runStatus(args []string) error {
 
 	fmt.Printf("%s listening on %s (fingerprint %s)\n\n", r.Name, r.Listen, pair.ShortID(r.Fingerprint))
 	if len(r.Devices) == 0 {
-		fmt.Println("No paired devices. Run `tether pair`.")
+		fmt.Println("No paired devices. Run `pocketlink pair`.")
 		return nil
 	}
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
@@ -164,7 +164,7 @@ func runConfig(args []string) error {
 	case 2:
 		err = control.Call(control.Request{Cmd: "set", Key: fs.Arg(0), Value: fs.Arg(1)}, &r)
 	default:
-		return errors.New("usage: tether config [-json] [KEY VALUE]")
+		return errors.New("usage: pocketlink config [-json] [KEY VALUE]")
 	}
 	if err != nil {
 		return err
@@ -185,7 +185,7 @@ func runConfig(args []string) error {
 
 func runUnpair(args []string) error {
 	if len(args) != 1 {
-		return errors.New("usage: tether unpair <device>")
+		return errors.New("usage: pocketlink unpair <device>")
 	}
 	return control.Call(control.Request{Cmd: "unpair", ID: args[0]}, nil)
 }
@@ -195,7 +195,7 @@ func runSend(args []string) error {
 	to := fs.String("to", "", "device ID prefix or name")
 	fs.Parse(args)
 	if fs.NArg() == 0 {
-		return errors.New("usage: tether send [-to DEVICE] FILE...")
+		return errors.New("usage: pocketlink send [-to DEVICE] FILE...")
 	}
 	paths := make([]string, fs.NArg())
 	for i, p := range fs.Args() {

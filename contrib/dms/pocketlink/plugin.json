@@ -1,0 +1,12 @@
+{
+  "id": "pocketlink",
+  "name": "pocketlink",
+  "description": "Phone companion: pair phones, see connection state, send files and change pocketlink settings",
+  "version": "0.1.0",
+  "author": "carnager",
+  "icon": "phonelink",
+  "type": "widget",
+  "component": "./PocketlinkWidget.qml",
+  "settings": "./PocketlinkSettings.qml",
+  "permissions": ["settings_read", "settings_write"]
+}

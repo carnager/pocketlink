@@ -11,8 +11,8 @@ import (
 
 	"github.com/godbus/dbus/v5"
 
-	"github.com/carnager/tether/internal/pair"
-	"github.com/carnager/tether/internal/proto"
+	"github.com/carnager/pocketlink/internal/pair"
+	"github.com/carnager/pocketlink/internal/proto"
 )
 
 const (
@@ -93,7 +93,7 @@ func (s *Sink) Removed(dev pair.Device, key string) error {
 
 // FileReceived announces a saved file, with actions to open it or its folder.
 func (s *Sink) FileReceived(dev pair.Device, path string) error {
-	_, err := s.show("tether", 0, "document-save", "File from "+dev.Name, filepath.Base(path),
+	_, err := s.show("pocketlink", 0, "document-save", "File from "+dev.Name, filepath.Base(path),
 		[]string{"default", "Open", "folder", "Show in folder"},
 		func(action string) {
 			switch action {

@@ -4,14 +4,14 @@ plugins {
 }
 
 android {
-    namespace = "io.github.carnager.tether"
+    namespace = "io.github.carnager.pocketlink"
     compileSdk {
         version = release(37) { minorApiLevel = 2 }
     }
     buildToolsVersion = "36.1.0"
 
     defaultConfig {
-        applicationId = "io.github.carnager.tether"
+        applicationId = "io.github.carnager.pocketlink"
         minSdk = 29
         targetSdk = 36
         versionCode = 1

@@ -1,8 +1,8 @@
-// Command tether-sim pretends to be a phone, so the daemon can be exercised
+// Command pocketlink-sim pretends to be a phone, so the daemon can be exercised
 // before the Android app exists.
 //
-//	tether-sim pair 'tether://pair?...'
-//	tether-sim run
+//	pocketlink-sim pair 'pocketlink://pair?...'
+//	pocketlink-sim run
 //
 // In run mode, each stdin line is sent to the desktop:
 //
@@ -39,9 +39,9 @@ import (
 	"github.com/adrg/xdg"
 	"github.com/coder/websocket"
 
-	"github.com/carnager/tether/internal/pair"
-	"github.com/carnager/tether/internal/proto"
-	"github.com/carnager/tether/internal/xfer"
+	"github.com/carnager/pocketlink/internal/pair"
+	"github.com/carnager/pocketlink/internal/proto"
+	"github.com/carnager/pocketlink/internal/xfer"
 )
 
 type server struct {
@@ -58,10 +58,10 @@ type client struct {
 }
 
 func main() {
-	dir := flag.String("dir", filepath.Join(xdg.ConfigHome, "tether-sim"), "state directory")
-	name := flag.String("name", "tether-sim", "device name")
+	dir := flag.String("dir", filepath.Join(xdg.ConfigHome, "pocketlink-sim"), "state directory")
+	name := flag.String("name", "pocketlink-sim", "device name")
 	flag.Usage = func() {
-		fmt.Fprintln(os.Stderr, "usage: tether-sim [-dir DIR] [-name NAME] pair URI | run")
+		fmt.Fprintln(os.Stderr, "usage: pocketlink-sim [-dir DIR] [-name NAME] pair URI | run")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -292,7 +292,7 @@ func (cl *client) handleLine(line string, n *int) (proto.Envelope, error) {
 	title, text, _ := strings.Cut(line, "|")
 	log.Printf("posting notification %s", key)
 	return proto.New(proto.TypeNotifPosted, proto.NotifPosted{
-		Key: key, App: "dev.tether.sim", AppName: "tether-sim",
+		Key: key, App: "dev.pocketlink.sim", AppName: "pocketlink-sim",
 		Title: strings.TrimSpace(title), Text: strings.TrimSpace(text), Time: time.Now().UnixMilli(),
 	})
 }

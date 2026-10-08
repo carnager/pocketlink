@@ -1,10 +1,10 @@
 [Unit]
-Description=tether phone companion daemon
+Description=pocketlink phone companion daemon
 PartOf=graphical-session.target
 After=graphical-session.target
 
 [Service]
-ExecStart=%h/.local/bin/tether daemon
+ExecStart=%h/.local/bin/pocketlink daemon
 Restart=on-failure
 RestartSec=3
 

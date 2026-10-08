@@ -22,8 +22,8 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/carnager/tether/internal/pair"
-	"github.com/carnager/tether/internal/proto"
+	"github.com/carnager/pocketlink/internal/pair"
+	"github.com/carnager/pocketlink/internal/proto"
 )
 
 // Handler processes one incoming frame. The frame is acknowledged after

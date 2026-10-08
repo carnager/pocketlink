@@ -1,4 +1,4 @@
-package io.github.carnager.tether
+package io.github.carnager.pocketlink
 
 import android.content.Context
 import android.net.Uri
@@ -35,12 +35,12 @@ data class Server(val name: String, val fp: String, val addrs: List<String>, val
     }
 }
 
-/** A `tether://pair?...` link from the desktop's QR code. */
+/** A `pocketlink://pair?...` link from the desktop's QR code. */
 data class Offer(val name: String, val fp: String, val token: String, val addrs: List<String>) {
     companion object {
         fun parse(s: String): Offer? {
             val u = Uri.parse(s.trim())
-            if (u.scheme != "tether" || u.host != "pair") return null
+            if (u.scheme != "pocketlink" || u.host != "pair") return null
             val fp = u.getQueryParameter("fp") ?: return null
             val token = u.getQueryParameter("t") ?: return null
             val addrs = u.getQueryParameter("a")?.split(",")?.filter { it.isNotBlank() }.orEmpty()
@@ -51,7 +51,7 @@ data class Offer(val name: String, val fp: String, val token: String, val addrs:
 }
 
 class Prefs(ctx: Context) {
-    private val sp = ctx.getSharedPreferences("tether", Context.MODE_PRIVATE)
+    private val sp = ctx.getSharedPreferences("pocketlink", Context.MODE_PRIVATE)
 
     init {
         migrateSingleServer()

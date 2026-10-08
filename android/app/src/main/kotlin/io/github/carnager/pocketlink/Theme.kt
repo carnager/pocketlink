@@ -1,4 +1,4 @@
-package io.github.carnager.tether
+package io.github.carnager.pocketlink
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -30,7 +30,7 @@ private val Dark = darkColorScheme(
 
 /** Material You colors from the wallpaper where available. */
 @Composable
-fun TetherTheme(content: @Composable () -> Unit) {
+fun PocketlinkTheme(content: @Composable () -> Unit) {
     val dark = isSystemInDarkTheme()
     val ctx = LocalContext.current
     val colors = when {

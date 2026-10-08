@@ -1,5 +1,5 @@
 // Package config holds the daemon's user-editable settings, stored as JSON
-// in $XDG_CONFIG_HOME/tether/config.json.
+// in $XDG_CONFIG_HOME/pocketlink/config.json.
 package config
 
 import (
@@ -140,6 +140,27 @@ func (c *Config) Set(key, value string) error {
 	return nil
 }
 
+// MigrateLegacyDirs moves config and state from the project's former name,
+// "tether", so the desktop keeps its identity and paired devices.
+func MigrateLegacyDirs() error {
+	for _, base := range []string{xdg.ConfigHome, xdg.StateHome} {
+		old, cur := filepath.Join(base, "tether"), filepath.Join(base, "pocketlink")
+		if _, err := os.Stat(cur); err == nil {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(old, "cert.pem")); err != nil && base == xdg.ConfigHome {
+			continue // not ours, or nothing to migrate
+		}
+		if _, err := os.Stat(old); err != nil {
+			continue
+		}
+		if err := os.Rename(old, cur); err != nil {
+			return fmt.Errorf("moving %s to %s: %w", old, cur, err)
+		}
+	}
+	return nil
+}
+
 func Path() string {
-	return filepath.Join(xdg.ConfigHome, "tether", "config.json")
+	return filepath.Join(xdg.ConfigHome, "pocketlink", "config.json")
 }

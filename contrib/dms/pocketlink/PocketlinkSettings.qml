@@ -6,11 +6,11 @@ import qs.Widgets
 PluginSettings {
     id: root
 
-    pluginId: "tether"
+    pluginId: "pocketlink"
 
     StyledText {
         width: parent.width
-        text: "tether"
+        text: "pocketlink"
         font.pixelSize: Theme.fontSizeLarge
         font.weight: Font.Bold
         color: Theme.surfaceText
@@ -18,7 +18,7 @@ PluginSettings {
 
     StyledText {
         width: parent.width
-        text: "Pairing, the download folder and clipboard sync are managed from the widget popout. They are stored by the tether daemon itself."
+        text: "Pairing, the download folder and clipboard sync are managed from the widget popout. They are stored by the pocketlink daemon itself."
         font.pixelSize: Theme.fontSizeSmall
         color: Theme.surfaceVariantText
         wrapMode: Text.WordWrap
@@ -31,10 +31,10 @@ PluginSettings {
     }
 
     StringSetting {
-        settingKey: "tetherBinary"
-        label: "tether Binary"
-        description: "Path or command name for the tether CLI."
-        placeholder: "tether"
-        defaultValue: "tether"
+        settingKey: "pocketlinkBinary"
+        label: "pocketlink Binary"
+        description: "Path or command name for the pocketlink CLI."
+        placeholder: "pocketlink"
+        defaultValue: "pocketlink"
     }
 }

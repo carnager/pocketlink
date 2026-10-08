@@ -1,4 +1,4 @@
-module github.com/carnager/tether
+module github.com/carnager/pocketlink
 
 go 1.24
 

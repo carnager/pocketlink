@@ -1,4 +1,4 @@
-package io.github.carnager.tether
+package io.github.carnager.pocketlink
 
 import android.app.Notification
 import android.app.NotificationManager
@@ -32,7 +32,7 @@ import org.json.JSONObject
  * transfers are persisted and continue whenever the connection comes back.
  */
 class Transfers(private val ctx: Context, private val link: Link, dataDir: File, cacheDir: File) {
-    private val exec = Executors.newSingleThreadExecutor { Thread(it, "tether-xfer-${link.id.take(6)}") }
+    private val exec = Executors.newSingleThreadExecutor { Thread(it, "pocketlink-xfer-${link.id.take(6)}") }
     private val uploads = TransferList(File(dataDir, "uploads.json"))
     private val downloads = TransferList(File(dataDir, "downloads.json"))
     private val upDir = File(cacheDir, "uploads")
@@ -325,10 +325,10 @@ class Transfers(private val ctx: Context, private val link: Link, dataDir: File,
     }
 
     private companion object {
-        const val TAG = "tether"
-        const val H_NAME = "X-Tether-Name"
-        const val H_SIZE = "X-Tether-Size"
-        const val H_OFFSET = "X-Tether-Offset"
-        const val H_COMPLETE = "X-Tether-Complete"
+        const val TAG = "pocketlink"
+        const val H_NAME = "X-Pocketlink-Name"
+        const val H_SIZE = "X-Pocketlink-Size"
+        const val H_OFFSET = "X-Pocketlink-Offset"
+        const val H_COMPLETE = "X-Pocketlink-Complete"
     }
 }

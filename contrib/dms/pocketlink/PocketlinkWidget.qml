@@ -10,7 +10,7 @@ import qs.Widgets
 PluginComponent {
     id: root
 
-    pluginId: "tether"
+    pluginId: "pocketlink"
     popoutWidth: 400
     popoutHeight: 760
 
@@ -33,12 +33,12 @@ PluginComponent {
     property string confirmUnpairId: ""
     property string actionDescription: ""
 
-    readonly property string configuredBinary: String(loadPluginValue("tetherBinary", "tether")).trim()
-    readonly property string tetherBinary: configuredBinary.length > 0 ? configuredBinary : "tether"
+    readonly property string configuredBinary: String(loadPluginValue("pocketlinkBinary", "pocketlink")).trim()
+    readonly property string pocketlinkBinary: configuredBinary.length > 0 ? configuredBinary : "pocketlink"
     readonly property var devices: status && status.devices ? status.devices : []
     readonly property int connectedCount: devices.filter(d => d.connected).length
     readonly property bool pairing: qrPath.length > 0
-    readonly property string qrFile: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/tether-pair.png"
+    readonly property string qrFile: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/pocketlink-pair.png"
     readonly property string pillIconName: connectedCount > 0 ? "phonelink" : "phonelink_off"
     readonly property string summaryText: {
         if (statusError.length > 0)
@@ -94,27 +94,27 @@ PluginComponent {
         // A command that can't be found never starts and never exits, so
         // notice it on the next poll instead of showing "Loading…" forever.
         if (statusAttempted && !statusStarted)
-            statusError = "Cannot run \"" + tetherBinary + "\". Set the binary path in the plugin settings.";
+            statusError = "Cannot run \"" + pocketlinkBinary + "\". Set the binary path in the plugin settings.";
         statusAttempted = true;
         statusStarted = false;
-        statusRunner.command = [tetherBinary, "status", "-json"];
+        statusRunner.command = [pocketlinkBinary, "status", "-json"];
         statusRunner.running = true;
     }
 
     function refreshConfig() {
         if (!configRunner.running) {
-            configRunner.command = [tetherBinary, "config", "-json"];
+            configRunner.command = [pocketlinkBinary, "config", "-json"];
             configRunner.running = true;
         }
     }
 
     function runAction(args, description) {
         if (actionRunner.running) {
-            ToastService.showWarning("tether is busy, try again");
+            ToastService.showWarning("pocketlink is busy, try again");
             return;
         }
         actionDescription = description;
-        actionRunner.command = [tetherBinary].concat(args);
+        actionRunner.command = [pocketlinkBinary].concat(args);
         actionRunner.running = true;
     }
 
@@ -125,7 +125,7 @@ PluginComponent {
         for (const d of devices)
             known[d.id] = true;
         devicesBeforePairing = known;
-        pairRunner.command = [tetherBinary, "pair", "-json", "-png", qrFile];
+        pairRunner.command = [pocketlinkBinary, "pair", "-json", "-png", qrFile];
         pairRunner.running = true;
     }
 
@@ -193,7 +193,7 @@ PluginComponent {
                     root.status = JSON.parse(text);
                     root.statusError = "";
                 } catch (e) {
-                    root.statusError = "Unexpected output from tether status";
+                    root.statusError = "Unexpected output from pocketlink status";
                     return;
                 }
                 if (!root.pairing)
@@ -214,7 +214,7 @@ PluginComponent {
 
         onExited: exitCode => {
             if (exitCode !== 0)
-                root.statusError = statusStderr.text.trim() || ("Could not run " + root.tetherBinary);
+                root.statusError = statusStderr.text.trim() || ("Could not run " + root.pocketlinkBinary);
         }
     }
 
@@ -232,7 +232,7 @@ PluginComponent {
                     root.overridden = reply.overridden || [];
                     root.configError = "";
                 } catch (e) {
-                    root.configError = "Unexpected output from tether config";
+                    root.configError = "Unexpected output from pocketlink config";
                 }
             }
         }
@@ -294,7 +294,7 @@ PluginComponent {
             if (exitCode !== 0) {
                 ToastService.showError("Could not " + root.actionDescription, actionStderr.text.trim());
             } else if (actionStdout.text.indexOf("Restart the daemon") >= 0) {
-                ToastService.showInfo("Restart the tether daemon to apply this change");
+                ToastService.showInfo("Restart the pocketlink daemon to apply this change");
             }
             root.refreshStatus();
             root.refreshConfig();
@@ -423,7 +423,7 @@ PluginComponent {
 
                     StyledText {
                         width: parent.width
-                        text: "tether"
+                        text: "pocketlink"
                         font.pixelSize: Theme.fontSizeLarge
                         font.weight: Font.Bold
                         color: Theme.surfaceText
@@ -439,7 +439,7 @@ PluginComponent {
                     StyledText {
                         visible: root.statusError.length > 0
                         width: parent.width
-                        text: root.statusStarted ? root.statusError + "\nStart it with: systemctl --user start tether" : root.statusError
+                        text: root.statusStarted ? root.statusError + "\nStart it with: systemctl --user start pocketlink" : root.statusError
                         font.pixelSize: Theme.fontSizeSmall
                         color: Theme.error
                         wrapMode: Text.WordWrap
@@ -575,7 +575,7 @@ PluginComponent {
                         StyledText {
                             width: parent.width
                             horizontalAlignment: Text.AlignHCenter
-                            text: "Scan with the tether app · expires in "
+                            text: "Scan with the pocketlink app · expires in "
                                 + Math.floor(root.qrSecondsLeft / 60) + ":" + String(root.qrSecondsLeft % 60).padStart(2, "0")
                             font.pixelSize: Theme.fontSizeSmall
                             color: Theme.surfaceVariantText

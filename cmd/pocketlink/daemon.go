@@ -19,20 +19,23 @@ import (
 
 	"github.com/adrg/xdg"
 
-	"github.com/carnager/tether/internal/clip"
-	"github.com/carnager/tether/internal/config"
-	"github.com/carnager/tether/internal/conn"
-	"github.com/carnager/tether/internal/control"
-	"github.com/carnager/tether/internal/media"
-	"github.com/carnager/tether/internal/notify"
-	"github.com/carnager/tether/internal/pair"
-	"github.com/carnager/tether/internal/proto"
-	"github.com/carnager/tether/internal/xfer"
+	"github.com/carnager/pocketlink/internal/clip"
+	"github.com/carnager/pocketlink/internal/config"
+	"github.com/carnager/pocketlink/internal/conn"
+	"github.com/carnager/pocketlink/internal/control"
+	"github.com/carnager/pocketlink/internal/media"
+	"github.com/carnager/pocketlink/internal/notify"
+	"github.com/carnager/pocketlink/internal/pair"
+	"github.com/carnager/pocketlink/internal/proto"
+	"github.com/carnager/pocketlink/internal/xfer"
 )
 
 const pairTTL = 5 * time.Minute
 
 func runDaemon(args []string) error {
+	if err := config.MigrateLegacyDirs(); err != nil {
+		slog.Warn("migrating old config", "err", err)
+	}
 	cfgPath := config.Path()
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
@@ -44,11 +47,11 @@ func runDaemon(args []string) error {
 	fs.BoolVar(&cfg.Clipboard, "clipboard", cfg.Clipboard, "send desktop clipboard changes to phones")
 	fs.StringVar(&cfg.Downloads, "downloads", cfg.Downloads, "directory for received files")
 	fs.Usage = func() {
-		fmt.Fprintf(fs.Output(), "usage: tether daemon [flags]\n\nFlags override %s for this run.\n\n", cfgPath)
+		fmt.Fprintf(fs.Output(), "usage: pocketlink daemon [flags]\n\nFlags override %s for this run.\n\n", cfgPath)
 		fs.PrintDefaults()
 	}
 	fs.Parse(args)
-	// Flags given on the command line are not written back by `tether config`.
+	// Flags given on the command line are not written back by `pocketlink config`.
 	overridden := map[string]bool{}
 	fs.Visit(func(f *flag.Flag) { overridden[f.Name] = true })
 
@@ -57,8 +60,8 @@ func runDaemon(args []string) error {
 	if err != nil {
 		return fmt.Errorf("-listen: %w", err)
 	}
-	cfgDir := filepath.Join(xdg.ConfigHome, "tether")
-	stateDir := filepath.Join(xdg.StateHome, "tether")
+	cfgDir := filepath.Join(xdg.ConfigHome, "pocketlink")
+	stateDir := filepath.Join(xdg.StateHome, "pocketlink")
 
 	cert, err := pair.LoadOrCreateIdentity(cfgDir, *name)
 	if err != nil {
@@ -193,7 +196,7 @@ func runDaemon(args []string) error {
 		})
 	}()
 
-	slog.Info("tether running", "name", *name, "listen", *listen, "fingerprint", pair.ShortID(fp))
+	slog.Info("pocketlink running", "name", *name, "listen", *listen, "fingerprint", pair.ShortID(fp))
 
 	select {
 	case <-ctx.Done():
@@ -309,7 +312,7 @@ func housekeeping(ctx context.Context, incoming *xfer.Incoming, outgoing *xfer.O
 	}
 }
 
-// settingsState is the live configuration, changed via `tether config`.
+// settingsState is the live configuration, changed via `pocketlink config`.
 type settingsState struct {
 	path       string
 	overridden map[string]bool

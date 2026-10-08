@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "tether"
+rootProject.name = "pocketlink"
 include(":app")

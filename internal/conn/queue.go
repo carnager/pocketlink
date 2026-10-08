@@ -10,7 +10,7 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/carnager/tether/internal/proto"
+	"github.com/carnager/pocketlink/internal/proto"
 )
 
 const maxQueued = 1000

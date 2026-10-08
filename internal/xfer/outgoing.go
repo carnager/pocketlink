@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/carnager/tether/internal/pair"
+	"github.com/carnager/pocketlink/internal/pair"
 )
 
 // Offer is a desktop file made available to some devices. The file is

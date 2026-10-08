@@ -1,4 +1,4 @@
-package io.github.carnager.tether
+package io.github.carnager.pocketlink
 
 import android.Manifest
 import android.content.BroadcastReceiver
@@ -18,7 +18,7 @@ import org.json.JSONObject
  * volume and show the caller.
  */
 object Calls {
-    private const val TAG = "tether"
+    private const val TAG = "pocketlink"
 
     /** Permissions needed to see calls and who is calling. */
     val permissions = arrayOf(

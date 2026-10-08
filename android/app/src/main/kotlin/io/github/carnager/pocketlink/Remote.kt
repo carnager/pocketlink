@@ -1,4 +1,4 @@
-package io.github.carnager.tether
+package io.github.carnager.pocketlink
 
 import android.app.Notification
 import android.app.NotificationManager
@@ -29,7 +29,7 @@ import org.json.JSONObject
  */
 class Remote(private val ctx: Context, private val link: Link) {
     private val main = Handler(Looper.getMainLooper())
-    private val fetcher = Executors.newSingleThreadExecutor { Thread(it, "tether-art") }
+    private val fetcher = Executors.newSingleThreadExecutor { Thread(it, "pocketlink-art") }
     private val nm = ctx.getSystemService(NotificationManager::class.java)
     private val notifId = NOTIF_BASE + abs(link.id.hashCode() % 1000)
 
@@ -76,7 +76,7 @@ class Remote(private val ctx: Context, private val link: Link) {
             session = null
             return
         }
-        val s = session ?: MediaSession(ctx, "tether-${link.id.take(8)}").also {
+        val s = session ?: MediaSession(ctx, "pocketlink-${link.id.take(8)}").also {
             it.setCallback(callback, main)
             it.isActive = true
             session = it
@@ -164,7 +164,7 @@ class Remote(private val ctx: Context, private val link: Link) {
                 BitmapFactory.decodeStream(r.body.byteStream())?.let(::shrink)
             }
         } catch (e: Exception) {
-            Log.w("tether", "fetching album art", e)
+            Log.w("pocketlink", "fetching album art", e)
             null
         }
         main.post {
@@ -191,8 +191,8 @@ class Remote(private val ctx: Context, private val link: Link) {
     }
 
     companion object {
-        const val EXTRA_LINK = "io.github.carnager.tether.LINK"
-        const val EXTRA_ACTION = "io.github.carnager.tether.ACTION"
+        const val EXTRA_LINK = "io.github.carnager.pocketlink.LINK"
+        const val EXTRA_ACTION = "io.github.carnager.pocketlink.ACTION"
         private const val NOTIF_BASE = 2000
     }
 }

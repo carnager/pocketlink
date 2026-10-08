@@ -26,7 +26,7 @@ func (o Offer) URI() string {
 	v.Set("fp", o.FP)
 	v.Set("t", o.Token)
 	v.Set("n", o.Name)
-	return "tether://pair?" + v.Encode()
+	return "pocketlink://pair?" + v.Encode()
 }
 
 func ParseOffer(s string) (Offer, error) {
@@ -34,8 +34,8 @@ func ParseOffer(s string) (Offer, error) {
 	if err != nil {
 		return Offer{}, err
 	}
-	if u.Scheme != "tether" || u.Host != "pair" {
-		return Offer{}, errors.New("not a tether pairing URI")
+	if u.Scheme != "pocketlink" || u.Host != "pair" {
+		return Offer{}, errors.New("not a pocketlink pairing URI")
 	}
 	q := u.Query()
 	o := Offer{FP: q.Get("fp"), Token: q.Get("t"), Name: q.Get("n")}

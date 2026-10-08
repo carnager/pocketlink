@@ -1,4 +1,4 @@
-package io.github.carnager.tether
+package io.github.carnager.pocketlink
 
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
@@ -27,7 +27,7 @@ import okhttp3.OkHttpClient
  * identifies this phone by that certificate's SHA-256 fingerprint.
  */
 object Identity {
-    private const val ALIAS = "tether-identity"
+    private const val ALIAS = "pocketlink-identity"
 
     private val material: Pair<PrivateKey, X509Certificate> by lazy { loadOrCreate() }
 
@@ -47,7 +47,7 @@ object Identity {
                         KeyProperties.DIGEST_SHA384,
                         KeyProperties.DIGEST_SHA512,
                     )
-                    .setCertificateSubject(X500Principal("CN=tether"))
+                    .setCertificateSubject(X500Principal("CN=pocketlink"))
                     .setCertificateSerialNumber(BigInteger.valueOf(now))
                     .setCertificateNotBefore(Date(now - day))
                     .setCertificateNotAfter(Date(now + 30 * 365 * day))

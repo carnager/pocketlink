@@ -30,14 +30,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/carnager/tether/internal/pair"
+	"github.com/carnager/pocketlink/internal/pair"
 )
 
 const (
-	HeaderName     = "X-Tether-Name" // URL query-escaped file name
-	HeaderSize     = "X-Tether-Size" // total file size in bytes
-	HeaderOffset   = "X-Tether-Offset"
-	HeaderComplete = "X-Tether-Complete"
+	HeaderName     = "X-Pocketlink-Name" // URL query-escaped file name
+	HeaderSize     = "X-Pocketlink-Size" // total file size in bytes
+	HeaderOffset   = "X-Pocketlink-Offset"
+	HeaderComplete = "X-Pocketlink-Complete"
 )
 
 const (
@@ -80,7 +80,7 @@ func NewIncoming(dir, destDir string, store *pair.Store, onDone func(pair.Device
 }
 
 // ServeHEAD reports the progress of a transfer: 404 if unknown, otherwise
-// the received byte count in X-Tether-Offset.
+// the received byte count in X-Pocketlink-Offset.
 func (in *Incoming) ServeHEAD(w http.ResponseWriter, r *http.Request) {
 	dev, id, ok := in.request(w, r)
 	if !ok {
@@ -100,7 +100,7 @@ func (in *Incoming) ServeHEAD(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// ServePUT appends the request body at X-Tether-Offset. It answers 204 while
+// ServePUT appends the request body at X-Pocketlink-Offset. It answers 204 while
 // the file is incomplete, 201 once it is saved, and 409 with the current
 // offset if the client's offset is wrong.
 func (in *Incoming) ServePUT(w http.ResponseWriter, r *http.Request) {

@@ -1,4 +1,4 @@
-package io.github.carnager.tether
+package io.github.carnager.pocketlink
 
 import android.content.Context
 import android.net.ConnectivityManager
@@ -22,7 +22,7 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import org.json.JSONObject
 
-private const val TAG = "tether"
+private const val TAG = "pocketlink"
 
 enum class Status { CONNECTING, CONNECTED, OFFLINE, REJECTED }
 
@@ -56,7 +56,7 @@ class Links private constructor(private val ctx: Context) {
     private val links = LinkedHashMap<String, Link>()
     private val main = Handler(Looper.getMainLooper())
     private val observers = CopyOnWriteArrayList<() -> Unit>()
-    private val pairExec = Executors.newSingleThreadScheduledExecutor { Thread(it, "tether-pair") }
+    private val pairExec = Executors.newSingleThreadScheduledExecutor { Thread(it, "pocketlink-pair") }
     private var started = false
 
     init {
@@ -100,7 +100,7 @@ class Links private constructor(private val ctx: Context) {
     fun pair(uri: String, done: (String?) -> Unit) = pairExec.guarded({ main.post { done("Internal error") } }) {
         val offer = Offer.parse(uri)
         if (offer == null) {
-            main.post { done("Not a tether pairing link") }
+            main.post { done("Not a pocketlink pairing link") }
             return@guarded
         }
         pairAt(offer, 0, mutableListOf(), done)
@@ -195,7 +195,7 @@ class Link internal constructor(private val ctx: Context, val id: String, privat
     val transfers = Transfers(ctx, this, dir, File(ctx.cacheDir, "servers/${id.take(16)}"))
     val remote = Remote(ctx, this)
 
-    private val exec = Executors.newSingleThreadScheduledExecutor { Thread(it, "tether-link-${id.take(6)}") }
+    private val exec = Executors.newSingleThreadScheduledExecutor { Thread(it, "pocketlink-link-${id.take(6)}") }
     private val outbox = Outbox(File(dir, "outbox.json"))
 
     private var closed = false
