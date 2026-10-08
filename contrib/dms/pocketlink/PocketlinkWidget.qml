@@ -30,6 +30,7 @@ PluginComponent {
     property var devicesBeforePairing: ({})
 
     property string confirmUnpairId: ""
+    property var sendTarget: null // device to send the picked file to; null for all
     property string actionDescription: ""
 
     readonly property string configuredBinary: String(loadPluginValue("pocketlinkBinary", "pocketlink")).trim()
@@ -145,6 +146,11 @@ PluginComponent {
         }
         confirmUnpairId = "";
         runAction(["unpair", device.id], "unpair " + device.name);
+    }
+
+    function sendFileTo(device) {
+        sendTarget = device;
+        openFileBrowser(sendBrowserLoader);
     }
 
     function openFileBrowser(loader) {
@@ -310,7 +316,11 @@ PluginComponent {
             browserType: "generic"
             showHiddenFiles: false
             onFileSelected: path => {
-                root.runAction(["send", path], "send " + path.split("/").pop());
+                const name = path.split("/").pop();
+                if (root.sendTarget)
+                    root.runAction(["send", "-to", root.sendTarget.id, path], "send " + name + " to " + root.sendTarget.name);
+                else
+                    root.runAction(["send", path], "send " + name);
                 close();
             }
         }
@@ -495,7 +505,7 @@ PluginComponent {
                             Column {
                                 anchors.left: deviceIcon.right
                                 anchors.leftMargin: Theme.spacingM
-                                anchors.right: unpairButton.left
+                                anchors.right: sendButton.left
                                 anchors.rightMargin: Theme.spacingS
                                 anchors.verticalCenter: parent.verticalCenter
                                 spacing: 2
@@ -515,6 +525,35 @@ PluginComponent {
                                     font.pixelSize: Theme.fontSizeSmall
                                     color: Theme.surfaceVariantText
                                     elide: Text.ElideRight
+                                }
+                            }
+
+                            Rectangle {
+                                id: sendButton
+
+                                anchors.right: unpairButton.left
+                                anchors.rightMargin: Theme.spacingS
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: 30
+                                height: 30
+                                radius: 10
+                                color: sendArea.containsMouse ? Theme.widgetBaseHoverColor : Theme.surfaceContainer
+                                border.color: Theme.outline
+                                border.width: 1
+
+                                DankIcon {
+                                    anchors.centerIn: parent
+                                    name: "upload_file"
+                                    size: 16
+                                    color: Theme.surfaceText
+                                }
+
+                                MouseArea {
+                                    id: sendArea
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: root.sendFileTo(modelData)
                                 }
                             }
 
@@ -565,10 +604,10 @@ PluginComponent {
 
                         DankButton {
                             width: (parent.width - Theme.spacingS) / 2
-                            text: "Send file"
+                            text: root.devices.length > 1 ? "Send to all" : "Send file"
                             iconName: "upload_file"
                             enabled: root.devices.length > 0
-                            onClicked: root.openFileBrowser(sendBrowserLoader)
+                            onClicked: root.sendFileTo(null)
                         }
                     }
 
