@@ -6,24 +6,39 @@ package clip
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 )
 
-// MaxText is the largest clipboard text that is synced.
-const MaxText = 256 << 10
+const (
+	// MaxText is the largest clipboard text that is synced.
+	MaxText = 256 << 10
+	// MaxImage is the largest clipboard image that is synced.
+	MaxImage = 20 << 20
+)
 
 // Clipboard tracks the last synced content so changes don't bounce back and
 // forth between desktop and phone.
 type Clipboard struct {
 	mu   sync.Mutex
 	last [32]byte
+}
+
+// SetImage puts an image on the clipboard.
+func (c *Clipboard) SetImage(mime string, data []byte) error {
+	c.Changed(string(data))
+	cmd := exec.Command("wl-copy", "--type", mime)
+	cmd.Stdin = bytes.NewReader(data)
+	return cmd.Run()
 }
 
 // Set writes text to the clipboard.
@@ -48,11 +63,11 @@ func (c *Clipboard) Changed(text string) bool {
 }
 
 // Watch runs `wl-paste --watch exe clip --watch`, so each selection change
-// is piped into the CLI, which forwards it to the daemon. wl-paste is
+// starts the CLI, which forwards it to the daemon. wl-paste is
 // restarted if it exits, until ctx is cancelled.
 func Watch(ctx context.Context, exe string) {
 	for {
-		cmd := exec.CommandContext(ctx, "wl-paste", "--type", "text", "--watch", exe, "clip", "--watch")
+		cmd := exec.CommandContext(ctx, "wl-paste", "--watch", exe, "clip", "--watch")
 		cmd.Stderr = os.Stderr
 		err := cmd.Run()
 		if ctx.Err() != nil {
@@ -79,12 +94,80 @@ func Get() (string, error) {
 	return string(out), nil
 }
 
-// IsSensitive reports whether a password manager (KeePassXC, ...) flagged
-// the current selection as secret.
-func IsSensitive() bool {
+// Types lists the MIME types the current selection is offered as.
+func Types() []string {
 	out, err := exec.Command("wl-paste", "--list-types").Output()
 	if err != nil {
-		return false
+		return nil
 	}
-	return bytes.Contains(out, []byte("x-kde-passwordManagerHint"))
+	return strings.Fields(string(out))
+}
+
+// IsSensitive reports whether a password manager (KeePassXC, ...) flagged a
+// selection offered as types as secret.
+func IsSensitive(types []string) bool {
+	return slices.Contains(types, "x-kde-passwordManagerHint")
+}
+
+// ImageType returns the image type to sync for a selection offered as
+// types, or "" if it's text (or neither). Anything that offers plain text
+// is treated as text, so copying text from a browser stays text.
+func ImageType(types []string) string {
+	isText := func(t string) bool {
+		return t == "text/plain" || strings.HasPrefix(t, "text/plain;") || t == "UTF8_STRING" || t == "STRING" || t == "TEXT"
+	}
+	if slices.ContainsFunc(types, isText) {
+		return ""
+	}
+	if slices.Contains(types, "image/png") {
+		return "image/png"
+	}
+	for _, t := range types {
+		if strings.HasPrefix(t, "image/") {
+			return t
+		}
+	}
+	return ""
+}
+
+// GetImage reads the selection as mime, up to MaxImage+1 bytes.
+func GetImage(mime string) ([]byte, error) {
+	cmd := exec.Command("wl-paste", "--type", mime)
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("wl-paste: %w", err)
+	}
+	data, err := io.ReadAll(io.LimitReader(out, MaxImage+1))
+	cmd.Process.Kill()
+	cmd.Wait()
+	return data, err
+}
+
+// Images keeps the most recent desktop clipboard image for phones to fetch.
+type Images struct {
+	mu   sync.Mutex
+	id   string
+	mime string
+	data []byte
+}
+
+// Put replaces the stored image and returns its id.
+func (im *Images) Put(mime string, data []byte) string {
+	im.mu.Lock()
+	defer im.mu.Unlock()
+	im.id, im.mime, im.data = rand.Text(), mime, data
+	return im.id
+}
+
+// Get returns the image with id, if it is still the latest.
+func (im *Images) Get(id string) (string, []byte, bool) {
+	im.mu.Lock()
+	defer im.mu.Unlock()
+	if id == "" || id != im.id {
+		return "", nil, false
+	}
+	return im.mime, im.data, true
 }

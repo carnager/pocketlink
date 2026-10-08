@@ -78,8 +78,11 @@ pocketlink send [-to NAME] FILE...
 ```
 
 Desktop clipboard changes go to phones automatically (`-clipboard=false` turns
-that off). Selections that password managers mark with
-`x-kde-passwordManagerHint` are skipped.
+that off), text and images (up to 20 MB, e.g. a `grim` screenshot) alike;
+a copied image lands on the phone's clipboard, ready to paste. "Send
+clipboard" on the phone (tile, notification or app) sends images too.
+Selections that password managers mark with `x-kde-passwordManagerHint` are
+skipped.
 
 Settings live in `~/.config/pocketlink/config.json`:
 

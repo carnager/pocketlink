@@ -225,33 +225,66 @@ func runClip(args []string) error {
 	watch := fs.Bool("watch", false, "internal: invoked by wl-paste --watch")
 	fs.Parse(args)
 
-	var text string
-	if fs.NArg() > 0 {
-		text = strings.Join(fs.Args(), " ")
-	} else if stdinIsTerminal() {
-		var err error
-		if text, err = clip.Get(); err != nil {
-			return err
-		}
-	} else {
+	switch {
+	case *watch:
+		// wl-paste writes the selection to us; drain it so it doesn't fail
+		// writing, then read it in whatever form we sync.
+		io.Copy(io.Discard, os.Stdin)
+		return sendSelection(true)
+	case fs.NArg() > 0:
+		return sendText(strings.Join(fs.Args(), " "), false)
+	case stdinIsTerminal():
+		return sendSelection(false)
+	default:
 		data, err := io.ReadAll(io.LimitReader(os.Stdin, clip.MaxText+1))
 		if err != nil {
 			return err
 		}
-		text = string(data)
+		return sendText(string(data), false)
 	}
+}
 
-	if *watch {
-		if text == "" || len(text) > clip.MaxText || clip.IsSensitive() {
+// sendSelection sends the desktop clipboard, as an image if that's all it
+// holds, otherwise as text. From the watcher (watch), anything unsuitable
+// is skipped quietly.
+func sendSelection(watch bool) error {
+	types := clip.Types()
+	if clip.IsSensitive(types) {
+		if watch {
 			return nil
 		}
-	} else {
-		if text == "" {
-			return errors.New("nothing to send")
-		}
-		if len(text) > clip.MaxText {
-			return fmt.Errorf("text larger than %d bytes", clip.MaxText)
-		}
+		return errors.New("the clipboard is marked as a password, not sending it")
 	}
-	return control.Call(control.Request{Cmd: "clip", Text: text, Watch: *watch}, nil)
+	if mime := clip.ImageType(types); mime != "" {
+		data, err := clip.GetImage(mime)
+		switch {
+		case err != nil && watch, len(data) == 0 && watch, len(data) > clip.MaxImage && watch:
+			return nil
+		case err != nil:
+			return err
+		case len(data) > clip.MaxImage:
+			return fmt.Errorf("image larger than %d MB", clip.MaxImage>>20)
+		}
+		return control.Call(control.Request{Cmd: "clip-image", Mime: mime, Data: data, Watch: watch}, nil)
+	}
+	text, err := clip.Get()
+	if err != nil {
+		if watch {
+			return nil
+		}
+		return err
+	}
+	return sendText(text, watch)
+}
+
+func sendText(text string, watch bool) error {
+	switch {
+	case (text == "" || len(text) > clip.MaxText) && watch:
+		return nil
+	case text == "":
+		return errors.New("nothing to send")
+	case len(text) > clip.MaxText:
+		return fmt.Errorf("text larger than %d bytes", clip.MaxText)
+	}
+	return control.Call(control.Request{Cmd: "clip", Text: text, Watch: watch}, nil)
 }

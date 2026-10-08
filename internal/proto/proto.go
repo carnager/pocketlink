@@ -17,6 +17,7 @@ const (
 	TypeNotifPosted  = "notif.posted"
 	TypeNotifRemoved = "notif.removed"
 	TypeClipSet      = "clip.set"
+	TypeClipImage    = "clip.image"
 	TypeFileOffer    = "file.offer"
 	TypeFileDone     = "file.done"
 	TypeMediaState   = "media.state"
@@ -68,6 +69,15 @@ type CallState struct {
 	Time   int64  `json:"time"`           // unix millis on the phone
 }
 
+// ClipImage tells the phone the desktop clipboard holds an image, to be
+// fetched from GET /clip/{id}. Phones send images to the desktop clipboard
+// with PUT /clip, the image's type as Content-Type.
+type ClipImage struct {
+	ID   string `json:"id"`
+	Mime string `json:"mime"`
+	Size int    `json:"size"`
+}
+
 // FileOffer tells the phone a file is ready at GET /files/out/{id}.
 type FileOffer struct {
 	ID   string `json:"id"`
@@ -114,5 +124,5 @@ func Decode[T any](e Envelope) (T, error) {
 // Coalesces reports whether a newer pending frame of this type makes older
 // pending frames of the same type obsolete.
 func Coalesces(typ string) bool {
-	return typ == TypeClipSet || typ == TypeMediaState || typ == TypeCallState
+	return typ == TypeClipSet || typ == TypeClipImage || typ == TypeMediaState || typ == TypeCallState
 }

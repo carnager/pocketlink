@@ -1,6 +1,7 @@
 package io.github.carnager.pocketlink
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -74,6 +75,7 @@ object Calls {
     }
 
     /** Silences the ringer for the current call, on request from a computer. */
+    @SuppressLint("MissingPermission") // tried first, with a fallback when it's refused
     @Synchronized
     fun muteRinger(ctx: Context) = with(ctx) {
         if (lastState != TelephonyManager.EXTRA_STATE_RINGING) return@with

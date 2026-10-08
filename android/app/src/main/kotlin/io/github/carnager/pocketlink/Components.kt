@@ -1,5 +1,6 @@
 package io.github.carnager.pocketlink
 
+import android.annotation.SuppressLint
 import android.app.Activity
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -15,6 +16,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.core.content.FileProvider
+import java.io.File
+import java.util.concurrent.Executors
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import android.app.Application
 import android.app.Notification
 import android.app.NotificationChannel
@@ -23,6 +30,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.BroadcastReceiver
 import android.content.ClipData
+import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
@@ -71,21 +79,93 @@ object Notifs {
 }
 
 object Clip {
+    private const val AUTHORITY = "io.github.carnager.pocketlink.clip"
+    private const val MAX_IMAGE = 20 shl 20
+
+    private val main = Handler(Looper.getMainLooper())
+    private val exec = Executors.newSingleThreadExecutor { Thread(it, "pocketlink-clip") }
+
     /** Sets the phone clipboard. Apps may write it from the background. */
-    fun set(ctx: Context, text: String) = Handler(Looper.getMainLooper()).post {
+    fun set(ctx: Context, text: String) = main.post {
         ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("pocketlink", text))
     }
 
+    /** Fetches an image from the computer's clipboard and puts it on the phone's. */
+    fun fetchImage(ctx: Context, link: Link, offer: JSONObject) = exec.execute {
+        val (base, client) = link.target ?: return@execute
+        val id = offer.optString("id")
+        val mime = offer.optString("mime", "image/png")
+        try {
+            val dir = File(ctx.cacheDir, "clip").apply { mkdirs() }
+            dir.listFiles()?.forEach { it.delete() } // only the current image is needed
+            val file = File(dir, "clipboard." + mime.substringAfter('/').substringBefore(';').replace("jpeg", "jpg"))
+            client.newCall(Request.Builder().url("$base/clip/$id").build()).execute().use { r ->
+                if (!r.isSuccessful) return@execute // replaced by something newer meanwhile
+                file.outputStream().use { r.body.byteStream().copyTo(it) }
+            }
+            val uri = FileProvider.getUriForFile(ctx, AUTHORITY, file)
+            val clip = ClipData(ClipDescription("pocketlink", arrayOf(mime)), ClipData.Item(uri))
+            main.post { ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(clip) }
+        } catch (e: Exception) {
+            Log.w(TAG, "fetching clipboard image", e)
+        }
+    }
+
     /**
-     * Sends the phone clipboard to the desktop. Android only allows reading
-     * it while one of our windows has focus.
+     * Sends the phone clipboard to the computers: text through the outbox,
+     * images directly to those connected right now. Android only allows
+     * reading the clipboard while one of our windows has focus.
      */
     fun sendCurrent(ctx: Context): Boolean {
-        val clip = ctx.getSystemService(ClipboardManager::class.java).primaryClip
-        val text = clip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(ctx)?.toString()
+        val clip = ctx.getSystemService(ClipboardManager::class.java).primaryClip ?: return false
+        if (clip.itemCount == 0) return false
+        val item = clip.getItemAt(0)
+        val uri = item.uri
+        val desc = clip.description
+        val mime = (0 until desc.mimeTypeCount).map { desc.getMimeType(it) }.firstOrNull { it.startsWith("image/") }
+            ?: uri?.let { ctx.contentResolver.getType(it) }?.takeIf { it.startsWith("image/") }
+        if (uri != null && mime != null) {
+            // Read now: access to the clipboard's URI may not outlive this window.
+            val data = try {
+                ctx.contentResolver.openInputStream(uri)?.use { readAtMost(it, MAX_IMAGE + 1) }
+            } catch (e: Exception) {
+                Log.w(TAG, "reading clipboard image", e)
+                null
+            }
+            if (data == null || data.isEmpty() || data.size > MAX_IMAGE) return false
+            sendImage(Links.get(ctx).all(), mime, data)
+            return true
+        }
+        val text = item.coerceToText(ctx)?.toString()
         if (text.isNullOrEmpty()) return false
         Links.get(ctx).send("clip.set", JSONObject().put("text", text))
         return true
+    }
+
+    /** InputStream.readNBytes, which Android only has from API 33. */
+    private fun readAtMost(input: java.io.InputStream, limit: Int): ByteArray {
+        val out = java.io.ByteArrayOutputStream()
+        val buf = ByteArray(64 * 1024)
+        while (out.size() < limit) {
+            val n = input.read(buf, 0, minOf(buf.size, limit - out.size()))
+            if (n < 0) break
+            out.write(buf, 0, n)
+        }
+        return out.toByteArray()
+    }
+
+    private fun sendImage(links: List<Link>, mime: String, data: ByteArray) = exec.execute {
+        for (link in links) {
+            val (base, client) = link.target ?: continue
+            try {
+                val req = Request.Builder().url("$base/clip").put(data.toRequestBody(mime.toMediaType())).build()
+                client.newCall(req).execute().use { r ->
+                    if (!r.isSuccessful) Log.w(TAG, "sending clipboard image to ${link.name}: ${r.code}")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "sending clipboard image to ${link.name}", e)
+            }
+        }
     }
 }
 
@@ -392,6 +472,7 @@ class ClipTile : TileService() {
             startActivityAndCollapse(PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE))
         } else {
             @Suppress("DEPRECATION")
+            @SuppressLint("StartActivityAndCollapseDeprecated") // the PendingIntent overload needs API 34
             startActivityAndCollapse(intent)
         }
     }
@@ -399,6 +480,8 @@ class ClipTile : TileService() {
 
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
-        LinkService.start(ctx)
+        if (intent.action == Intent.ACTION_BOOT_COMPLETED || intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) {
+            LinkService.start(ctx)
+        }
     }
 }

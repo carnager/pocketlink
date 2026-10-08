@@ -395,6 +395,7 @@ class Link internal constructor(private val ctx: Context, val id: String, privat
     private fun handle(type: String, body: JSONObject) {
         when (type) {
             "clip.set" -> Clip.set(ctx, body.optString("text"))
+            "clip.image" -> Clip.fetchImage(ctx, this, body)
             "file.offer" -> transfers.offered(body)
             "media.state" -> remote.update(body)
             "call.mute" -> Calls.muteRinger(ctx)

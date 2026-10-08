@@ -21,6 +21,8 @@ type Request struct {
 	Text  string   `json:"text,omitempty"`
 	Watch bool     `json:"watch,omitempty"`
 	Paths []string `json:"paths,omitempty"`
+	Mime  string   `json:"mime,omitempty"`
+	Data  []byte   `json:"data,omitempty"`
 	Key   string   `json:"key,omitempty"`
 	Value string   `json:"value,omitempty"`
 }

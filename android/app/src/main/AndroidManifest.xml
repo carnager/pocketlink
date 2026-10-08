@@ -120,6 +120,17 @@
             </intent-filter>
         </service>
 
+        <!-- Serves images put on the clipboard to the apps that paste them. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="io.github.carnager.pocketlink.clip"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/clip_paths" />
+        </provider>
+
         <receiver
             android:name=".MediaActionReceiver"
             android:exported="false" />

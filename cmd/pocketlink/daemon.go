@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -77,6 +78,7 @@ func runDaemon(args []string) error {
 		return fmt.Errorf("connecting to session bus: %w", err)
 	}
 	clipboard := &clip.Clipboard{}
+	images := &clip.Images{}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -119,6 +121,43 @@ func runDaemon(args []string) error {
 	mux.HandleFunc("PUT /files/in/{id}", incoming.ServePUT)
 	mux.HandleFunc("HEAD /files/in/{id}", incoming.ServeHEAD)
 	mux.Handle("GET /files/out/{id}", outgoing)
+	mux.HandleFunc("GET /clip/{id}", func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := store.Peer(r.TLS); !ok {
+			http.Error(w, "not paired", http.StatusForbidden)
+			return
+		}
+		mime, data, ok := images.Get(r.PathValue("id"))
+		if !ok {
+			http.Error(w, "clipboard has changed", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", mime)
+		w.Write(data)
+	})
+	mux.HandleFunc("PUT /clip", func(w http.ResponseWriter, r *http.Request) {
+		dev, ok := store.Peer(r.TLS)
+		if !ok {
+			http.Error(w, "not paired", http.StatusForbidden)
+			return
+		}
+		mime := r.Header.Get("Content-Type")
+		if !strings.HasPrefix(mime, "image/") {
+			http.Error(w, "only images", http.StatusUnsupportedMediaType)
+			return
+		}
+		data, err := io.ReadAll(io.LimitReader(r.Body, clip.MaxImage+1))
+		if err != nil || len(data) > clip.MaxImage {
+			http.Error(w, "image too large or incomplete", http.StatusRequestEntityTooLarge)
+			return
+		}
+		if err := clipboard.SetImage(mime, data); err != nil {
+			slog.Warn("setting clipboard image", "err", err)
+			http.Error(w, "could not set clipboard", http.StatusInternalServerError)
+			return
+		}
+		slog.Info("clipboard image from phone", "device", dev.Name, "type", mime, "bytes", len(data))
+		w.WriteHeader(http.StatusNoContent)
+	})
 	mux.HandleFunc("GET /media/art/{key}", func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := store.Peer(r.TLS); !ok {
 			http.Error(w, "not paired", http.StatusForbidden)
@@ -184,6 +223,12 @@ func runDaemon(args []string) error {
 					return nil, nil
 				}
 				return nil, hub.Broadcast(proto.TypeClipSet, proto.ClipSet{Text: req.Text})
+			case "clip-image":
+				if !clipboard.Changed(string(req.Data)) && req.Watch {
+					return nil, nil
+				}
+				id := images.Put(req.Mime, req.Data)
+				return nil, hub.Broadcast(proto.TypeClipImage, proto.ClipImage{ID: id, Mime: req.Mime, Size: len(req.Data)})
 			case "send":
 				return sendFiles(hub, store, outgoing, req)
 			case "config":
