@@ -80,6 +80,11 @@ class Links private constructor(private val ctx: Context) {
 
     internal fun changed() = main.post { observers.forEach { it() } }
 
+    internal fun renamed() {
+        ShareTargets.update(ctx, all())
+        changed()
+    }
+
     @Synchronized
     fun start() {
         if (started) return
@@ -91,6 +96,7 @@ class Links private constructor(private val ctx: Context) {
             override fun onLost(n: Network) = all().forEach { it.onNetworkLost(n) }
         })
         all().forEach { it.start(initial) }
+        ShareTargets.update(ctx, all())
     }
 
     /** Queues a frame for every paired computer. */
@@ -110,6 +116,7 @@ class Links private constructor(private val ctx: Context) {
         val link = synchronized(this) { links.remove(id) } ?: return
         prefs.removeServer(id)
         link.close()
+        ShareTargets.update(ctx, all())
         changed()
     }
 
@@ -164,6 +171,7 @@ class Links private constructor(private val ctx: Context) {
         val link = Link(ctx, server.id, this)
         synchronized(this) { links[server.id] = link }
         if (started) link.start(ctx.getSystemService(ConnectivityManager::class.java).activeNetwork)
+        ShareTargets.update(ctx, all())
         changed()
     }
 
@@ -374,7 +382,7 @@ class Link internal constructor(private val ctx: Context, val id: String, privat
             }
             "hello" -> body.optString("name").takeIf { it.isNotEmpty() && it != name }?.let { n ->
                 links.prefs.updateServer(id) { it.copy(name = n) }
-                links.changed()
+                links.renamed()
             }
             else -> {
                 // Retransmitted frames are acked again but handled only once.

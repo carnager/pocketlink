@@ -27,6 +27,8 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.content.pm.ShortcutInfo
+import android.content.pm.ShortcutManager
 import android.graphics.drawable.Icon
 import android.net.Uri
 import android.os.Build
@@ -236,6 +238,14 @@ class ShareActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val links = Links.get(this).all()
+        // Picked a computer directly in the share sheet's direct-share row.
+        val direct = ShareTargets.linkFor(this, intent.getStringExtra(Intent.EXTRA_SHORTCUT_ID))
+        if (direct != null) {
+            send(listOf(direct))
+            ShareTargets.reportUsed(this, direct)
+            finish()
+            return
+        }
         when {
             links.isEmpty() -> {
                 toast("Pair with a computer first")
@@ -308,6 +318,43 @@ class ShareActivity : ComponentActivity() {
     }
 
     private fun toast(msg: String) = Toast.makeText(applicationContext, msg, Toast.LENGTH_SHORT).show()
+}
+
+/**
+ * Publishes each paired computer as a direct share target, so it shows up
+ * by name in the share sheet (see res/xml/shortcuts.xml).
+ */
+object ShareTargets {
+    private const val CATEGORY = "io.github.carnager.pocketlink.category.COMPUTER"
+    private const val PREFIX = "computer-"
+
+    fun update(ctx: Context, links: List<Link>) {
+        val sm = ctx.getSystemService(ShortcutManager::class.java) ?: return
+        val shortcuts = links.take(sm.maxShortcutCountPerActivity).map { link ->
+            ShortcutInfo.Builder(ctx, PREFIX + link.id)
+                .setShortLabel(link.name)
+                .setLongLabel("Send to ${link.name}")
+                .setIcon(Icon.createWithResource(ctx, R.drawable.ic_share_computer))
+                .setCategories(setOf(CATEGORY))
+                .setLongLived(true)
+                // Shortcuts need an intent; from the launcher this just opens the app.
+                .setIntent(Intent(ctx, MainActivity::class.java).setAction(Intent.ACTION_VIEW))
+                .build()
+        }
+        try {
+            sm.dynamicShortcuts = shortcuts
+        } catch (e: IllegalStateException) {
+            // Rate-limited while in the background; the next update catches up.
+            Log.w(TAG, "updating share targets", e)
+        }
+    }
+
+    fun linkFor(ctx: Context, shortcutId: String?): Link? =
+        shortcutId?.removePrefix(PREFIX)?.takeIf { shortcutId.startsWith(PREFIX) }?.let { Links.get(ctx).get(it) }
+
+    /** Helps Android rank the target in the share sheet. */
+    fun reportUsed(ctx: Context, link: Link) =
+        ctx.getSystemService(ShortcutManager::class.java)?.reportShortcutUsed(PREFIX + link.id)
 }
 
 /** Forwards a `pocketlink://pair` link to the main screen. */
