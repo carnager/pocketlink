@@ -62,7 +62,8 @@ tether config                      # show
 tether config downloads ~/Inbox    # applies immediately
 tether config clipboard false      # applies immediately
 tether config name laptop          # needs a daemon restart
-tether config call_action lower    # during calls: pause | lower | none
+tether config ring_action lower    # while the phone rings: pause | lower | none
+tether config talk_action pause    # during a call: pause | lower | none
 tether config call_volume 15       # percent, for "lower"
 ```
 
@@ -75,8 +76,9 @@ player while the notification is active.
 
 With "Phone calls" enabled in the app, an incoming call shows on the
 desktop with a *Mute ringer* action (and as *Missed call* if not answered).
-Media is paused or the volume lowered (`call_action`) and restored when the
-call ends. Volume changes use `wpctl` (PipeWire).
+Media is paused or the volume lowered, separately for ringing
+(`ring_action`) and talking (`talk_action`), and restored when the call
+ends. Volume changes use `wpctl` (PipeWire).
 
 ## DankMaterialShell plugin
 

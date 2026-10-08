@@ -21,7 +21,8 @@ import (
 const callEventMaxAge = 2 * time.Minute
 
 // calls reacts to phone calls: a desktop notification, and pausing media
-// or lowering the volume until the call ends.
+// or lowering the volume (separately configurable for ringing and talking)
+// until the call ends.
 type calls struct {
 	settings *settingsState
 	players  *media.Watcher
@@ -36,8 +37,14 @@ type call struct {
 	caller   string
 	notif    uint32
 	answered bool
-	paused   []string // players to resume
-	volume   string   // volume to restore, as wpctl prints it
+	quiet    quieting
+}
+
+// quieting is what was done to desktop audio, so it can be undone.
+type quieting struct {
+	action string   // "pause", "lower" or "" for nothing
+	paused []string // players to resume
+	volume string   // volume to restore, as wpctl prints it
 }
 
 func newCalls(settings *settingsState, players *media.Watcher, sink *notify.Sink, hub *conn.Hub) *calls {
@@ -54,7 +61,7 @@ func (c *calls) handle(dev pair.Device, ev proto.CallState) error {
 			return nil
 		}
 		delete(c.active, dev.ID)
-		c.restore(cur)
+		c.restore(cur.quiet)
 		if cur.notif != 0 {
 			if cur.answered {
 				return c.sink.Close(cur.notif)
@@ -71,11 +78,12 @@ func (c *calls) handle(dev pair.Device, ev proto.CallState) error {
 	if cur == nil {
 		cur = &call{}
 		c.active[dev.ID] = cur
-		c.quieten(cur)
 	}
 	cur.caller = callerName(ev)
+	cfg := c.settings.get().Config
 	switch ev.Event {
 	case "ringing":
+		c.switchTo(cur, cfg.RingAction, cfg.CallVolume)
 		id, err := c.sink.IncomingCall(dev, cur.notif, cur.caller, func() {
 			if err := c.hub.Send(dev.ID, proto.TypeCallMute, struct{}{}); err != nil {
 				slog.Warn("muting ringer", "err", err)
@@ -86,6 +94,7 @@ func (c *calls) handle(dev pair.Device, ev proto.CallState) error {
 		}
 		cur.notif = id
 	case "talking":
+		c.switchTo(cur, cfg.TalkAction, cfg.CallVolume)
 		cur.answered = true
 		if cur.notif != 0 {
 			c.sink.Close(cur.notif)
@@ -107,33 +116,51 @@ func callerName(ev proto.CallState) string {
 	return "Unknown caller"
 }
 
-// quieten applies the call_action setting.
-func (c *calls) quieten(cur *call) {
-	cfg := c.settings.get().Config
-	switch cfg.CallAction {
-	case "pause":
-		cur.paused = c.players.PauseAll()
-	case "lower":
-		vol, err := sinkVolume()
-		if err != nil {
-			slog.Warn("reading volume", "err", err)
-			return
-		}
-		target := float64(cfg.CallVolume) / 100
-		if v, err := strconv.ParseFloat(vol, 64); err == nil && v > target {
-			if err := setSinkVolume(strconv.FormatFloat(target, 'f', 2, 64)); err != nil {
-				slog.Warn("lowering volume", "err", err)
-				return
-			}
-			cur.volume = vol
-		}
+// switchTo changes what is done to desktop audio, e.g. from a lowered
+// volume while ringing to paused media once answered. The new action is
+// applied before the old one is undone, so audio never comes back at full
+// volume in between.
+func (c *calls) switchTo(cur *call, action string, volume int) {
+	if action == "none" {
+		action = ""
 	}
+	if action == cur.quiet.action {
+		return
+	}
+	old := cur.quiet
+	cur.quiet = quieting{action: action}
+	switch action {
+	case "pause":
+		cur.quiet.paused = c.players.PauseAll()
+	case "lower":
+		cur.quiet.volume = lower(volume)
+	}
+	c.restore(old)
 }
 
-func (c *calls) restore(cur *call) {
-	c.players.Resume(cur.paused)
-	if cur.volume != "" {
-		if err := setSinkVolume(cur.volume); err != nil {
+// lower sets the output volume to percent, unless it is already lower, and
+// returns the volume to restore later ("" if nothing changed).
+func lower(percent int) string {
+	cur, err := sinkVolume()
+	if err != nil {
+		slog.Warn("reading volume", "err", err)
+		return ""
+	}
+	target := float64(percent) / 100
+	if v, err := strconv.ParseFloat(cur, 64); err != nil || v <= target {
+		return ""
+	}
+	if err := setSinkVolume(strconv.FormatFloat(target, 'f', 2, 64)); err != nil {
+		slog.Warn("lowering volume", "err", err)
+		return ""
+	}
+	return cur
+}
+
+func (c *calls) restore(q quieting) {
+	c.players.Resume(q.paused)
+	if q.volume != "" {
+		if err := setSinkVolume(q.volume); err != nil {
 			slog.Warn("restoring volume", "err", err)
 		}
 	}

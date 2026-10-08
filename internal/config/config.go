@@ -21,14 +21,18 @@ type Config struct {
 	Downloads string `json:"downloads"` // where received files are saved
 	Clipboard bool   `json:"clipboard"` // send desktop clipboard changes to phones
 
-	// During phone calls: "pause" media, "lower" the volume to CallVolume
-	// percent, or "none".
-	CallAction string `json:"call_action"`
+	// What to do with desktop audio while the phone rings and during a call:
+	// "pause" media, "lower" the volume to CallVolume percent, or "none".
+	RingAction string `json:"ring_action"`
+	TalkAction string `json:"talk_action"`
 	CallVolume int    `json:"call_volume"`
+
+	// LegacyCallAction is the single setting older versions had for both.
+	LegacyCallAction string `json:"call_action,omitempty"`
 }
 
 // Keys lists the settable keys, in display order.
-var Keys = []string{"name", "listen", "downloads", "clipboard", "call_action", "call_volume"}
+var Keys = []string{"name", "listen", "downloads", "clipboard", "ring_action", "talk_action", "call_volume"}
 
 // NeedsRestart reports whether changing key only takes effect after the
 // daemon restarts.
@@ -42,7 +46,7 @@ func Defaults() Config {
 	if downloads == "" {
 		downloads = filepath.Join(xdg.Home, "Downloads")
 	}
-	return Config{Name: host, Listen: ":1764", Downloads: downloads, Clipboard: true, CallAction: "pause", CallVolume: 20}
+	return Config{Name: host, Listen: ":1764", Downloads: downloads, Clipboard: true, RingAction: "lower", TalkAction: "pause", CallVolume: 20}
 }
 
 // Load reads path, filling in defaults for anything missing.
@@ -57,6 +61,17 @@ func Load(path string) (Config, error) {
 	}
 	if err := json.Unmarshal(data, &c); err != nil {
 		return c, fmt.Errorf("%s: %w", path, err)
+	}
+	if c.LegacyCallAction != "" {
+		var keys map[string]json.RawMessage
+		json.Unmarshal(data, &keys)
+		if _, ok := keys["ring_action"]; !ok {
+			c.RingAction = c.LegacyCallAction
+		}
+		if _, ok := keys["talk_action"]; !ok {
+			c.TalkAction = c.LegacyCallAction
+		}
+		c.LegacyCallAction = ""
 	}
 	return c, nil
 }
@@ -103,11 +118,15 @@ func (c *Config) Set(key, value string) error {
 			return errors.New("clipboard must be true or false")
 		}
 		c.Clipboard = b
-	case "call_action":
+	case "ring_action", "talk_action":
 		if value != "pause" && value != "lower" && value != "none" {
-			return errors.New("call_action must be pause, lower or none")
+			return fmt.Errorf("%s must be pause, lower or none", key)
 		}
-		c.CallAction = value
+		if key == "ring_action" {
+			c.RingAction = value
+		} else {
+			c.TalkAction = value
+		}
 	case "call_volume":
 		n, err := strconv.Atoi(value)
 		if err != nil || n < 0 || n > 100 {

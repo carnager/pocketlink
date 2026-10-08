@@ -37,7 +37,7 @@ commands:
                     send files to a phone (default: all paired phones)
   config [-json] [KEY VALUE]
                     show settings, or change one (name, listen, downloads,
-                    clipboard, call_action, call_volume)
+                    clipboard, ring_action, talk_action, call_volume)
 `
 
 type statusReply struct {
@@ -174,8 +174,8 @@ func runConfig(args []string) error {
 	}
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	c := r.Config
-	fmt.Fprintf(tw, "name\t%s\nlisten\t%s\ndownloads\t%s\nclipboard\t%t\ncall_action\t%s\ncall_volume\t%d\n",
-		c.Name, c.Listen, c.Downloads, c.Clipboard, c.CallAction, c.CallVolume)
+	fmt.Fprintf(tw, "name\t%s\nlisten\t%s\ndownloads\t%s\nclipboard\t%t\nring_action\t%s\ntalk_action\t%s\ncall_volume\t%d\n",
+		c.Name, c.Listen, c.Downloads, c.Clipboard, c.RingAction, c.TalkAction, c.CallVolume)
 	tw.Flush()
 	if r.Restart {
 		fmt.Println("\nRestart the daemon for this change to take effect.")
