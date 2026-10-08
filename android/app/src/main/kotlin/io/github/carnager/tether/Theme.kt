@@ -1,4 +1,4 @@
-package dev.tether
+package io.github.carnager.tether
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme

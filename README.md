@@ -30,12 +30,25 @@ computers.
   - Received files go to `$XDG_DOWNLOAD_DIR`. The desktop notification has
     Open / Show in folder actions.
 
-## Build & run
+## Install
+
+Desktop (needs Go ≥ 1.24, `wl-clipboard`, a notification daemon, and
+`wpctl` for lowering the volume during calls):
 
 ```sh
+go install github.com/carnager/tether/cmd/tether@latest   # into ~/go/bin
+# or from a checkout:
 go build -o ~/.local/bin/ ./cmd/tether
-cp contrib/tether.service ~/.config/systemd/user/
+
+cp contrib/tether.service ~/.config/systemd/user/   # adjust ExecStart if needed
 systemctl --user enable --now tether
+```
+
+Android app (Android 10+):
+
+```sh
+cd android && ./gradlew assembleDebug
+adb install app/build/outputs/apk/debug/app-debug.apk
 ```
 
 The daemon needs `WAYLAND_DISPLAY` in the systemd user environment for clipboard
@@ -116,4 +129,12 @@ internal/notify   org.freedesktop.Notifications sink
 internal/clip     wl-clipboard integration
 internal/control  unix socket CLI <-> daemon
 internal/xfer     resumable HTTPS file transfer
+internal/media    MPRIS players for the media remote
+internal/config   config.json
+android/          the phone app (Kotlin, Compose)
+contrib/dms       DankMaterialShell plugin
 ```
+
+## License
+
+GPL-3.0-or-later, see [LICENSE](LICENSE).

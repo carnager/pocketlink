@@ -1,4 +1,4 @@
-package dev.tether
+package io.github.carnager.tether
 
 import android.app.Activity
 import androidx.activity.ComponentActivity
@@ -150,8 +150,8 @@ class LinkService : Service() {
     }
 
     companion object {
-        const val ACTION_SHARE = "dev.tether.SHARE"
-        const val EXTRA_TARGETS = "dev.tether.TARGETS"
+        const val ACTION_SHARE = "io.github.carnager.tether.SHARE"
+        const val EXTRA_TARGETS = "io.github.carnager.tether.TARGETS"
 
         fun start(ctx: Context) {
             if (!Links.get(ctx).isPaired) return

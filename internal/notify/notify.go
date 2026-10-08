@@ -11,8 +11,8 @@ import (
 
 	"github.com/godbus/dbus/v5"
 
-	"tether/internal/pair"
-	"tether/internal/proto"
+	"github.com/carnager/tether/internal/pair"
+	"github.com/carnager/tether/internal/proto"
 )
 
 const (

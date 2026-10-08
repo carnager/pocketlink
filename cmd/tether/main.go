@@ -17,10 +17,10 @@ import (
 	"github.com/mdp/qrterminal/v3"
 	"rsc.io/qr"
 
-	"tether/internal/clip"
-	"tether/internal/conn"
-	"tether/internal/control"
-	"tether/internal/pair"
+	"github.com/carnager/tether/internal/clip"
+	"github.com/carnager/tether/internal/conn"
+	"github.com/carnager/tether/internal/control"
+	"github.com/carnager/tether/internal/pair"
 )
 
 const usage = `usage: tether <command> [args]

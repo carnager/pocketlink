@@ -39,9 +39,9 @@ import (
 	"github.com/adrg/xdg"
 	"github.com/coder/websocket"
 
-	"tether/internal/pair"
-	"tether/internal/proto"
-	"tether/internal/xfer"
+	"github.com/carnager/tether/internal/pair"
+	"github.com/carnager/tether/internal/proto"
+	"github.com/carnager/tether/internal/xfer"
 )
 
 type server struct {

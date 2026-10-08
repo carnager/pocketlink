@@ -1,4 +1,4 @@
-package dev.tether
+package io.github.carnager.tether
 
 import android.Manifest
 import android.app.NotificationManager

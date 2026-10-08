@@ -1,4 +1,4 @@
-package dev.tether
+package io.github.carnager.tether
 
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties

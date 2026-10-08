@@ -4,14 +4,14 @@ plugins {
 }
 
 android {
-    namespace = "dev.tether"
+    namespace = "io.github.carnager.tether"
     compileSdk {
         version = release(37) { minorApiLevel = 2 }
     }
     buildToolsVersion = "36.1.0"
 
     defaultConfig {
-        applicationId = "dev.tether"
+        applicationId = "io.github.carnager.tether"
         minSdk = 29
         targetSdk = 36
         versionCode = 1

@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"tether/internal/pair"
+	"github.com/carnager/tether/internal/pair"
 )
 
 func TestSanitizeName(t *testing.T) {

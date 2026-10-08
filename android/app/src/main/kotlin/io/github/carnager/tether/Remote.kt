@@ -1,4 +1,4 @@
-package dev.tether
+package io.github.carnager.tether
 
 import android.app.Notification
 import android.app.NotificationManager
@@ -191,8 +191,8 @@ class Remote(private val ctx: Context, private val link: Link) {
     }
 
     companion object {
-        const val EXTRA_LINK = "dev.tether.LINK"
-        const val EXTRA_ACTION = "dev.tether.ACTION"
+        const val EXTRA_LINK = "io.github.carnager.tether.LINK"
+        const val EXTRA_ACTION = "io.github.carnager.tether.ACTION"
         private const val NOTIF_BASE = 2000
     }
 }

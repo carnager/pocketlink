@@ -1,6 +1,6 @@
-module tether
+module github.com/carnager/tether
 
-go 1.27.1
+go 1.24
 
 require (
 	github.com/adrg/xdg v0.5.3

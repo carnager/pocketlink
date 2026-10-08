@@ -9,11 +9,11 @@ import (
 	"sync"
 	"time"
 
-	"tether/internal/conn"
-	"tether/internal/media"
-	"tether/internal/notify"
-	"tether/internal/pair"
-	"tether/internal/proto"
+	"github.com/carnager/tether/internal/conn"
+	"github.com/carnager/tether/internal/media"
+	"github.com/carnager/tether/internal/notify"
+	"github.com/carnager/tether/internal/pair"
+	"github.com/carnager/tether/internal/proto"
 )
 
 // Events older than this were queued while disconnected; acting on them

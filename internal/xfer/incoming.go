@@ -30,7 +30,7 @@ import (
 	"sync"
 	"time"
 
-	"tether/internal/pair"
+	"github.com/carnager/tether/internal/pair"
 )
 
 const (
