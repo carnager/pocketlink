@@ -45,20 +45,27 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.BatteryAlert
 import androidx.compose.material.icons.rounded.Call
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentPaste
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.LinkOff
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.QrCodeScanner
 import androidx.compose.material.icons.rounded.Restore
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
@@ -80,17 +87,22 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.journeyapps.barcodescanner.CaptureActivity
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 
@@ -431,12 +443,45 @@ class MainActivity : ComponentActivity() {
 
     // ---- Forwarded apps screen ----
 
+    private class AppEntry(val pkg: String, val label: String, val notified: Boolean)
+
+    /** Launchable apps plus anything that has posted a notification, by label. */
+    private fun loadApps(): List<AppEntry> {
+        val pm = packageManager
+        val launcher = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        @Suppress("DEPRECATION")
+        val activities = if (Build.VERSION.SDK_INT >= 33) {
+            pm.queryIntentActivities(launcher, PackageManager.ResolveInfoFlags.of(0))
+        } else {
+            pm.queryIntentActivities(launcher, 0)
+        }
+        val labels = LinkedHashMap<String, String>()
+        for (ri in activities) labels.putIfAbsent(ri.activityInfo.packageName, ri.loadLabel(pm).toString())
+        val seen = links.prefs.seenApps()
+        for ((pkg, label) in seen) labels.putIfAbsent(pkg, label)
+        labels.remove(packageName)
+        return labels.map { (pkg, label) -> AppEntry(pkg, label, pkg in seen) }.sortedBy { it.label.lowercase() }
+    }
+
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     private fun AppsScreen() {
         val prefs = links.prefs
-        val apps = remember { prefs.seenApps().entries.sortedBy { it.value.lowercase() } }
-        val enabled = remember { mutableStateMapOf<String, Boolean>().apply { apps.forEach { put(it.key, !prefs.isMuted(it.key)) } } }
+        val apps by produceState<List<AppEntry>?>(null) { value = withContext(Dispatchers.IO) { loadApps() } }
+        var query by rememberSaveable { mutableStateOf("") }
+        var menuOpen by remember { mutableStateOf(false) }
+        // Mirrors prefs so switches update immediately.
+        val forwarded = remember { mutableStateMapOf<String, Boolean>() }
+        fun isOn(pkg: String) = forwarded[pkg] ?: !prefs.isMuted(pkg)
+        fun setOn(pkgs: List<String>, on: Boolean) {
+            pkgs.forEach { forwarded[it] = on }
+            prefs.setMuted(pkgs, !on)
+        }
+
+        val shown = apps.orEmpty().filter {
+            query.isBlank() || it.label.contains(query, ignoreCase = true) || it.pkg.contains(query, ignoreCase = true)
+        }
+        val (notified, others) = shown.partition { it.notified }
 
         Scaffold(
             topBar = {
@@ -447,58 +492,97 @@ class MainActivity : ComponentActivity() {
                             Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back")
                         }
                     },
+                    actions = {
+                        IconButton(onClick = { menuOpen = true }) { Icon(Icons.Rounded.MoreVert, "More") }
+                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            DropdownMenuItem(
+                                text = { Text(if (query.isBlank()) "Forward all" else "Forward all shown") },
+                                onClick = { setOn(shown.map { it.pkg }, true); menuOpen = false },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(if (query.isBlank()) "Forward none" else "Forward none shown") },
+                                onClick = { setOn(shown.map { it.pkg }, false); menuOpen = false },
+                            )
+                        }
+                    },
                 )
             },
         ) { padding ->
-            if (apps.isEmpty()) {
-                Box(Modifier.fillMaxSize().padding(padding).padding(32.dp), contentAlignment = Alignment.Center) {
-                    Text(
-                        "Apps show up here once they have posted a notification.",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                return@Scaffold
-            }
-            LazyColumn(contentPadding = padding) {
-                items(apps, key = { it.key }) { (pkg, label) ->
-                    val on = enabled[pkg] ?: true
-                    ListItem(
-                        modifier = Modifier.clickable {
-                            enabled[pkg] = !on
-                            prefs.setMuted(pkg, on)
-                        },
-                        headlineContent = { Text(label) },
-                        supportingContent = { Text(pkg, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall) },
-                        leadingContent = { AppIcon(pkg) },
-                        trailingContent = {
-                            Switch(checked = on, onCheckedChange = {
-                                enabled[pkg] = it
-                                prefs.setMuted(pkg, !it)
-                            })
-                        },
-                    )
+            Column(Modifier.padding(top = padding.calculateTopPadding()).fillMaxSize()) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    placeholder = { Text("Search apps") },
+                    leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                    trailingIcon = {
+                        if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Rounded.Close, "Clear") }
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(28.dp),
+                )
+                when {
+                    apps == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                    shown.isEmpty() -> Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
+                        Text("No apps match “$query”", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    else -> LazyColumn(contentPadding = PaddingValues(bottom = padding.calculateBottomPadding() + 16.dp)) {
+                        if (notified.isNotEmpty()) {
+                            item(key = "h-notified") { ListHeader("Recently sent notifications") }
+                            items(notified, key = { "n-" + it.pkg }) { AppRow(it, isOn(it.pkg)) { on -> setOn(listOf(it.pkg), on) } }
+                        }
+                        if (others.isNotEmpty()) {
+                            item(key = "h-others") { ListHeader("Other apps") }
+                            items(others, key = { "o-" + it.pkg }) { AppRow(it, isOn(it.pkg)) { on -> setOn(listOf(it.pkg), on) } }
+                        }
+                    }
                 }
             }
         }
     }
 
     @Composable
+    private fun AppRow(app: AppEntry, on: Boolean, onChange: (Boolean) -> Unit) {
+        ListItem(
+            modifier = Modifier.clickable { onChange(!on) },
+            headlineContent = { Text(app.label) },
+            supportingContent = {
+                Text(app.pkg, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            },
+            leadingContent = { AppIcon(app.pkg) },
+            trailingContent = { Switch(checked = on, onCheckedChange = onChange) },
+        )
+    }
+
+    @Composable
+    private fun ListHeader(text: String) {
+        Text(
+            text,
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp),
+        )
+    }
+
+    @Composable
     private fun AppIcon(pkg: String) {
-        val bitmap = remember(pkg) {
-            try {
-                val d = packageManager.getApplicationIcon(pkg)
-                val size = (40 * resources.displayMetrics.density).toInt()
-                Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888).also {
-                    d.setBounds(0, 0, size, size)
-                    d.draw(Canvas(it))
-                }.asImageBitmap()
-            } catch (_: PackageManager.NameNotFoundException) {
-                null
+        val bitmap by produceState<ImageBitmap?>(null, pkg) {
+            value = withContext(Dispatchers.IO) {
+                try {
+                    val d = packageManager.getApplicationIcon(pkg)
+                    val size = (40 * resources.displayMetrics.density).toInt()
+                    Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888).also {
+                        d.setBounds(0, 0, size, size)
+                        d.draw(Canvas(it))
+                    }.asImageBitmap()
+                } catch (_: PackageManager.NameNotFoundException) {
+                    null
+                }
             }
         }
-        if (bitmap != null) {
-            Image(bitmap, null, Modifier.size(40.dp))
+        val b = bitmap
+        if (b != null) {
+            Image(b, null, Modifier.size(40.dp))
         } else {
             Box(Modifier.size(40.dp).background(MaterialTheme.colorScheme.surfaceVariant, CircleShape))
         }

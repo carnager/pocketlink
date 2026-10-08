@@ -106,9 +106,11 @@ class Prefs(ctx: Context) {
     /** Apps whose notifications are not forwarded. */
     fun isMuted(pkg: String) = pkg in sp.getStringSet("muted", emptySet())!!
 
-    fun setMuted(pkg: String, muted: Boolean) {
+    fun setMuted(pkg: String, muted: Boolean) = setMuted(listOf(pkg), muted)
+
+    fun setMuted(pkgs: Collection<String>, muted: Boolean) {
         val set = sp.getStringSet("muted", emptySet())!!.toMutableSet()
-        if (muted) set.add(pkg) else set.remove(pkg)
+        if (muted) set.addAll(pkgs) else set.removeAll(pkgs.toSet())
         sp.edit().putStringSet("muted", set).apply()
     }
 
