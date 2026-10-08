@@ -53,6 +53,28 @@ Desktop clipboard changes go to phones automatically (`-clipboard=false` turns
 that off). Selections that password managers mark with
 `x-kde-passwordManagerHint` are skipped.
 
+Settings live in `~/.config/tether/config.json`:
+
+```sh
+tether config                      # show
+tether config downloads ~/Inbox    # applies immediately
+tether config clipboard false      # applies immediately
+tether config name laptop          # needs a daemon restart
+```
+
+## DankMaterialShell plugin
+
+`contrib/dms/tether` is a bar widget: connection state, pairing with an
+on-screen QR code, sending files, unpairing, and the download folder and
+clipboard settings.
+
+```sh
+ln -s "$PWD/contrib/dms/tether" ~/.config/DankMaterialShell/plugins/tether
+```
+
+Then enable it in DMS settings → Plugins and add the widget to the bar. It
+runs `tether` from `PATH` (set a different binary in the plugin settings).
+
 ## Testing without a phone
 
 `tether-sim` acts like a phone:
