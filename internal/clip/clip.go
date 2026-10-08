@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -36,16 +37,22 @@ type Clipboard struct {
 // SetImage puts an image on the clipboard.
 func (c *Clipboard) SetImage(mime string, data []byte) error {
 	c.Changed(string(data))
-	cmd := exec.Command("wl-copy", "--type", mime)
-	cmd.Stdin = bytes.NewReader(data)
-	return cmd.Run()
+	return wlCopy(mime, bytes.NewReader(data))
 }
 
 // Set writes text to the clipboard.
 func (c *Clipboard) Set(text string) error {
 	c.Changed(text)
-	cmd := exec.Command("wl-copy", "--type", "text/plain;charset=utf-8")
-	cmd.Stdin = strings.NewReader(text)
+	return wlCopy("text/plain;charset=utf-8", strings.NewReader(text))
+}
+
+// wlCopy runs wl-copy, which stays in the background to serve the
+// selection. It gets a session of its own so stopping the daemon (Ctrl-C,
+// a restart) doesn't take the clipboard contents with it.
+func wlCopy(mime string, data io.Reader) error {
+	cmd := exec.Command("wl-copy", "--type", mime)
+	cmd.Stdin = data
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	return cmd.Run()
 }
 

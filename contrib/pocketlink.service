@@ -6,6 +6,9 @@ After=graphical-session.target
 [Service]
 ExecStart=%h/.local/bin/pocketlink daemon
 Restart=on-failure
+# Only stop the daemon itself: wl-copy children serve what it put on the
+# clipboard, which would otherwise vanish on every restart.
+KillMode=process
 RestartSec=3
 
 [Install]
