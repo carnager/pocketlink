@@ -1,6 +1,20 @@
 package dev.tether
 
 import android.app.Activity
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Computer
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import android.app.Application
 import android.app.Notification
 import android.app.NotificationChannel
@@ -66,7 +80,7 @@ object Clip {
         val clip = ctx.getSystemService(ClipboardManager::class.java).primaryClip
         val text = clip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(ctx)?.toString()
         if (text.isNullOrEmpty()) return false
-        Link.get(ctx).send("clip.set", JSONObject().put("text", text))
+        Links.get(ctx).send("clip.set", JSONObject().put("text", text))
         return true
     }
 }
@@ -82,12 +96,12 @@ class LinkService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        val link = Link.get(this)
-        startForeground(Notifs.LINK_ID, build(link.status), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
-        unobserve = link.observe { s ->
-            getSystemService(NotificationManager::class.java).notify(Notifs.LINK_ID, build(s))
+        val links = Links.get(this)
+        startForeground(Notifs.LINK_ID, build(), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
+        unobserve = links.observe {
+            getSystemService(NotificationManager::class.java).notify(Notifs.LINK_ID, build())
         }
-        link.start()
+        links.start()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -95,7 +109,8 @@ class LinkService : Service() {
             // The URI read grants came along with this intent's ClipData.
             val clip = intent.clipData
             val uris = if (clip == null) emptyList() else (0 until clip.itemCount).mapNotNull { clip.getItemAt(it).uri }
-            Link.get(this).transfers.share(uris)
+            val links = Links.get(this)
+            for (id in intent.getStringArrayExtra(EXTRA_TARGETS).orEmpty()) links.get(id)?.transfers?.share(uris)
         }
         return START_STICKY
     }
@@ -105,7 +120,7 @@ class LinkService : Service() {
         super.onDestroy()
     }
 
-    private fun build(s: Status): Notification {
+    private fun build(): Notification {
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
         val clip = PendingIntent.getActivity(
             this, 1,
@@ -114,7 +129,7 @@ class LinkService : Service() {
         )
         return Notification.Builder(this, Notifs.LINK)
             .setSmallIcon(R.drawable.ic_stat)
-            .setContentTitle(s.describe(Link.get(this).prefs.serverName))
+            .setContentTitle(summary(Links.get(this).all()))
             .setContentIntent(open)
             .setOngoing(true)
             .setShowWhen(false)
@@ -122,11 +137,22 @@ class LinkService : Service() {
             .build()
     }
 
+    private fun summary(links: List<Link>): String {
+        val connected = links.filter { it.status == Status.CONNECTED }.map { it.name }
+        return when {
+            links.isEmpty() -> "Not paired"
+            links.size == 1 -> "${links[0].name}: ${links[0].status.describe()}"
+            connected.isEmpty() -> "No computer connected"
+            else -> "Connected to ${connected.joinToString(", ")}"
+        }
+    }
+
     companion object {
         const val ACTION_SHARE = "dev.tether.SHARE"
+        const val EXTRA_TARGETS = "dev.tether.TARGETS"
 
         fun start(ctx: Context) {
-            if (Link.get(ctx).prefs.server == null) return
+            if (!Links.get(ctx).isPaired) return
             try {
                 ctx.startForegroundService(Intent(ctx, LinkService::class.java))
             } catch (e: Exception) {
@@ -147,7 +173,7 @@ class NotifListener : NotificationListenerService() {
     private val sent = HashMap<String, Int>() // notification key -> hash of what we sent
 
     override fun onListenerConnected() {
-        Link.get(this).start()
+        Links.get(this).start()
         LinkService.start(this)
     }
 
@@ -165,17 +191,17 @@ class NotifListener : NotificationListenerService() {
             ?.toString().orEmpty()
         if (title.isEmpty() && text.isEmpty()) return
 
-        val link = Link.get(this)
+        val links = Links.get(this)
         val label = appLabel(sbn.packageName)
-        link.prefs.addSeenApp(sbn.packageName, label)
-        if (link.prefs.isMuted(sbn.packageName)) return
+        links.prefs.addSeenApp(sbn.packageName, label)
+        if (links.prefs.isMuted(sbn.packageName)) return
 
         // Apps re-post unchanged notifications a lot; only send real changes.
         val hash = "$title\u0000$text".hashCode()
         if (sent[sbn.key] == hash) return
         sent[sbn.key] = hash
 
-        link.send(
+        links.send(
             "notif.posted",
             JSONObject()
                 .put("key", sbn.key)
@@ -189,7 +215,7 @@ class NotifListener : NotificationListenerService() {
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
         if (sent.remove(sbn.key) != null) {
-            Link.get(this).send("notif.removed", JSONObject().put("key", sbn.key))
+            Links.get(this).send("notif.removed", JSONObject().put("key", sbn.key))
         }
     }
 
@@ -200,35 +226,70 @@ class NotifListener : NotificationListenerService() {
     }
 }
 
-/** Share-sheet target: files are uploaded, plain text goes to the desktop clipboard. */
-class ShareActivity : Activity() {
+/**
+ * Share-sheet target: files are uploaded, plain text goes to the computer's
+ * clipboard. With several computers paired it asks which one.
+ */
+class ShareActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val link = Link.get(this)
-        val desktop = link.prefs.serverName
-        if (link.prefs.server == null) {
-            toast("Pair with a desktop first")
-        } else {
-            val uris = sharedUris()
-            val text = intent.getStringExtra(Intent.EXTRA_TEXT)
-            when {
-                uris.isNotEmpty() -> {
-                    val svc = Intent(this, LinkService::class.java)
-                        .setAction(LinkService.ACTION_SHARE)
-                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    svc.clipData = ClipData.newRawUri("", uris[0]).apply { uris.drop(1).forEach { addItem(ClipData.Item(it)) } }
-                    startForegroundService(svc)
-                    toast(if (uris.size == 1) "Sending to $desktop" else "Sending ${uris.size} files to $desktop")
+        val links = Links.get(this).all()
+        when {
+            links.isEmpty() -> {
+                toast("Pair with a computer first")
+                finish()
+            }
+            links.size == 1 -> {
+                send(links)
+                finish()
+            }
+            else -> setContent {
+                TetherTheme {
+                    AlertDialog(
+                        onDismissRequest = ::finish,
+                        title = { Text("Send to") },
+                        text = {
+                            Column {
+                                for (link in links) {
+                                    ListItem(
+                                        modifier = Modifier.clickable { send(listOf(link)); finish() },
+                                        headlineContent = { Text(link.name) },
+                                        supportingContent = { Text(link.status.describe()) },
+                                        leadingContent = { Icon(Icons.Rounded.Computer, null) },
+                                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                                    )
+                                }
+                            }
+                        },
+                        confirmButton = { TextButton(onClick = { send(links); finish() }) { Text("All computers") } },
+                        dismissButton = { TextButton(onClick = ::finish) { Text("Cancel") } },
+                    )
                 }
-                text != null -> {
-                    link.start()
-                    link.send("clip.set", JSONObject().put("text", text))
-                    toast("Copied to $desktop clipboard")
-                }
-                else -> toast("Nothing to send")
             }
         }
-        finish()
+    }
+
+    private fun send(targets: List<Link>) {
+        val uris = sharedUris()
+        val text = intent.getStringExtra(Intent.EXTRA_TEXT)
+        val where = if (targets.size == 1) targets[0].name else "${targets.size} computers"
+        when {
+            uris.isNotEmpty() -> {
+                val svc = Intent(this, LinkService::class.java)
+                    .setAction(LinkService.ACTION_SHARE)
+                    .putExtra(LinkService.EXTRA_TARGETS, targets.map { it.id }.toTypedArray())
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                svc.clipData = ClipData.newRawUri("", uris[0]).apply { uris.drop(1).forEach { addItem(ClipData.Item(it)) } }
+                startForegroundService(svc)
+                toast(if (uris.size == 1) "Sending to $where" else "Sending ${uris.size} files to $where")
+            }
+            text != null -> {
+                Links.get(this).start()
+                targets.forEach { it.send("clip.set", JSONObject().put("text", text)) }
+                toast("Copied to the clipboard on $where")
+            }
+            else -> toast("Nothing to send")
+        }
     }
 
     @Suppress("DEPRECATION")
@@ -245,6 +306,20 @@ class ShareActivity : Activity() {
     }
 
     private fun toast(msg: String) = Toast.makeText(applicationContext, msg, Toast.LENGTH_SHORT).show()
+}
+
+/** Forwards a `tether://pair` link to the main screen. */
+class PairLinkActivity : Activity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        startActivity(
+            Intent(this, MainActivity::class.java)
+                .setData(intent.data)
+                // CLEAR_TOP + SINGLE_TOP delivers to an existing MainActivity via onNewIntent.
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        )
+        finish()
+    }
 }
 
 /** Invisible activity that exists only to gain focus, read the clipboard and send it. */

@@ -42,6 +42,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.BatteryAlert
 import androidx.compose.material.icons.rounded.ContentPaste
 import androidx.compose.material.icons.rounded.ErrorOutline
@@ -105,9 +106,8 @@ private class Requirement(
 )
 
 class MainActivity : ComponentActivity() {
-    private val link by lazy { Link.get(this) }
+    private val links by lazy { Links.get(this) }
 
-    private var status by mutableStateOf(Status.UNPAIRED)
     private var pairingNote by mutableStateOf<String?>(null)
     private var screen by mutableStateOf(Screen.MAIN)
     // Bumped on resume and after changes, so permission and settings rows re-read their state.
@@ -122,8 +122,8 @@ class MainActivity : ComponentActivity() {
             contentResolver.takePersistableUriPermission(
                 tree, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
             )
-            link.prefs.saveTree?.let { old -> if (old != tree) releaseFolder(old) }
-            link.prefs.saveTree = tree
+            links.prefs.saveTree?.let { old -> if (old != tree) releaseFolder(old) }
+            links.prefs.saveTree = tree
         }
         tick++
     }
@@ -131,7 +131,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        link.start()
+        links.start()
         LinkService.start(this)
         setContent {
             TetherTheme {
@@ -154,7 +154,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        unobserve = link.observe { status = it }
+        unobserve = links.observe { tick++ }
     }
 
     override fun onStop() {
@@ -183,10 +183,10 @@ class MainActivity : ComponentActivity() {
 
     private fun pair(uri: String) {
         pairingNote = "Pairing…"
-        link.pair(uri) { err ->
+        links.pair(uri) { err ->
             if (err == null) {
                 pairingNote = null
-                toast("Paired with ${link.prefs.serverName}")
+                toast("Paired")
                 LinkService.start(this)
             } else {
                 pairingNote = "Pairing failed: $err"
@@ -201,10 +201,10 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun MainScreen() {
         val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-        @Suppress("UNUSED_VARIABLE") val t = tick // recompose on resume
-        val paired = link.prefs.server != null
+        @Suppress("UNUSED_VARIABLE") val t = tick // recompose on resume and link changes
+        val all = links.all()
         val missing = requirements()
-        var confirmUnpair by remember { mutableStateOf(false) }
+        var confirmUnpair by remember { mutableStateOf<Link?>(null) }
 
         Scaffold(
             modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
@@ -215,95 +215,123 @@ class MainActivity : ComponentActivity() {
                     start = 16.dp, end = 16.dp,
                     top = padding.calculateTopPadding(), bottom = padding.calculateBottomPadding() + 24.dp,
                 ),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                item { StatusCard() }
-                if (missing.isNotEmpty()) item { SetupCard(missing) }
-                if (paired) {
-                    item { SettingsCard(onUnpair = { confirmUnpair = true }) }
+                if (all.isEmpty()) {
+                    item { PairCard() }
+                } else {
+                    items(all, key = { it.id }) { ComputerCard(it, onUnpair = { confirmUnpair = it }) }
+                    item {
+                        pairingNote?.let { Text(it, Modifier.padding(horizontal = 8.dp), style = MaterialTheme.typography.bodyMedium) }
+                        FilledTonalButton(
+                            onClick = { toast(if (Clip.sendCurrent(this@MainActivity)) "Clipboard sent" else "Clipboard is empty") },
+                            enabled = all.any { it.status == Status.CONNECTED },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Icon(Icons.Rounded.ContentPaste, null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Send clipboard")
+                        }
+                    }
                 }
+                if (missing.isNotEmpty()) item { SetupCard(missing) }
+                if (all.isNotEmpty()) item { SettingsCard() }
             }
         }
 
-        if (confirmUnpair) {
+        confirmUnpair?.let { link ->
             AlertDialog(
-                onDismissRequest = { confirmUnpair = false },
+                onDismissRequest = { confirmUnpair = null },
                 icon = { Icon(Icons.Rounded.LinkOff, null) },
-                title = { Text("Unpair ${link.prefs.serverName}?") },
-                text = { Text("This phone stops syncing until you pair again.") },
+                title = { Text("Unpair ${link.name}?") },
+                text = { Text("This phone stops syncing with ${link.name} until you pair again.") },
                 confirmButton = {
                     TextButton(onClick = {
-                        confirmUnpair = false
-                        link.unpair()
-                        stopService(Intent(this, LinkService::class.java))
-                        tick++
+                        confirmUnpair = null
+                        links.unpair(link.id)
+                        if (!links.isPaired) stopService(Intent(this, LinkService::class.java))
                     }) { Text("Unpair") }
                 },
-                dismissButton = { TextButton(onClick = { confirmUnpair = false }) { Text("Cancel") } },
+                dismissButton = { TextButton(onClick = { confirmUnpair = null }) { Text("Cancel") } },
             )
         }
     }
 
     @Composable
-    private fun StatusCard() {
-        val desktop = link.prefs.serverName
+    private fun PairCard() {
         val c = MaterialTheme.colorScheme
-        val (container, onContainer) = when (status) {
-            Status.CONNECTED -> c.primaryContainer to c.onPrimaryContainer
-            Status.REJECTED -> c.errorContainer to c.onErrorContainer
-            Status.UNPAIRED -> c.secondaryContainer to c.onSecondaryContainer
-            else -> c.surfaceContainerHigh to c.onSurface
-        }
-        val (icon, title, detail) = when (status) {
-            Status.CONNECTED -> Triple(Icons.Rounded.Link, desktop, "Connected")
-            Status.CONNECTING -> Triple(Icons.Rounded.Sync, desktop, "Connecting…")
-            Status.OFFLINE -> Triple(Icons.Rounded.LinkOff, desktop, "Not reachable right now. tether reconnects on its own when it can.")
-            Status.REJECTED -> Triple(Icons.Rounded.ErrorOutline, desktop, "$desktop no longer trusts this phone. Pair again to reconnect.")
-            Status.UNPAIRED -> Triple(
-                Icons.Rounded.QrCodeScanner, "Pair with your computer",
-                "Open the tether panel widget, or run tether pair, then scan the code it shows.",
-            )
-        }
-
         Card(
-            colors = CardDefaults.cardColors(containerColor = container, contentColor = onContainer),
+            colors = CardDefaults.cardColors(containerColor = c.secondaryContainer, contentColor = c.onSecondaryContainer),
             shape = RoundedCornerShape(28.dp),
         ) {
             Column(Modifier.padding(24.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        Modifier.size(56.dp).background(onContainer.copy(alpha = 0.12f), CircleShape),
-                        contentAlignment = Alignment.Center,
-                    ) { Icon(icon, null, Modifier.size(28.dp)) }
-                    Spacer(Modifier.width(16.dp))
-                    Column {
-                        Text(title, style = MaterialTheme.typography.titleLarge)
-                        Text(
-                            pairingNote ?: detail,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = onContainer.copy(alpha = 0.8f),
-                        )
-                    }
-                }
-                if (status == Status.CONNECTING || pairingNote == "Pairing…") {
+                StatusHeader(
+                    Icons.Rounded.QrCodeScanner, c.onSecondaryContainer, "Pair with your computer",
+                    pairingNote ?: "Open the tether panel widget, or run tether pair, then scan the code it shows.",
+                )
+                if (pairingNote == "Pairing…") {
                     Spacer(Modifier.height(16.dp))
                     LinearProgressIndicator(Modifier.fillMaxWidth())
                 }
                 Spacer(Modifier.height(20.dp))
-                when (status) {
-                    Status.UNPAIRED, Status.REJECTED -> Button(onClick = ::startScan) {
-                        Icon(Icons.Rounded.QrCodeScanner, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Scan QR code")
-                    }
-                    else -> FilledTonalButton(onClick = {
-                        toast(if (Clip.sendCurrent(this@MainActivity)) "Clipboard sent" else "Clipboard is empty")
-                    }) {
-                        Icon(Icons.Rounded.ContentPaste, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Send clipboard")
-                    }
+                Button(onClick = ::startScan) {
+                    Icon(Icons.Rounded.QrCodeScanner, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Scan QR code")
                 }
+            }
+        }
+    }
+
+    @Composable
+    private fun ComputerCard(link: Link, onUnpair: () -> Unit) {
+        val c = MaterialTheme.colorScheme
+        val status = link.status
+        val (container, onContainer) = when (status) {
+            Status.CONNECTED -> c.primaryContainer to c.onPrimaryContainer
+            Status.REJECTED -> c.errorContainer to c.onErrorContainer
+            else -> c.surfaceContainerHigh to c.onSurface
+        }
+        val icon = when (status) {
+            Status.CONNECTED -> Icons.Rounded.Link
+            Status.CONNECTING -> Icons.Rounded.Sync
+            Status.OFFLINE -> Icons.Rounded.LinkOff
+            Status.REJECTED -> Icons.Rounded.ErrorOutline
+        }
+        Card(
+            colors = CardDefaults.cardColors(containerColor = container, contentColor = onContainer),
+            shape = RoundedCornerShape(28.dp),
+        ) {
+            Column(Modifier.padding(start = 20.dp, top = 20.dp, bottom = 20.dp, end = 8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f)) {
+                        StatusHeader(icon, onContainer, link.name, status.describe())
+                    }
+                    IconButton(onClick = onUnpair) { Icon(Icons.Rounded.LinkOff, "Unpair ${link.name}") }
+                }
+                if (status == Status.CONNECTING) {
+                    Spacer(Modifier.height(12.dp))
+                    LinearProgressIndicator(Modifier.fillMaxWidth().padding(end = 12.dp))
+                }
+                if (status == Status.REJECTED) {
+                    Spacer(Modifier.height(12.dp))
+                    Button(onClick = ::startScan) { Text("Pair again") }
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun StatusHeader(icon: ImageVector, onContainer: Color, title: String, detail: String) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.size(52.dp).background(onContainer.copy(alpha = 0.12f), CircleShape),
+                contentAlignment = Alignment.Center,
+            ) { Icon(icon, null, Modifier.size(26.dp)) }
+            Spacer(Modifier.width(16.dp))
+            Column {
+                Text(title, style = MaterialTheme.typography.titleLarge)
+                Text(detail, style = MaterialTheme.typography.bodyMedium, color = onContainer.copy(alpha = 0.8f))
             }
         }
     }
@@ -347,8 +375,8 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun SettingsCard(onUnpair: () -> Unit) {
-        val prefs = link.prefs
+    private fun SettingsCard() {
+        val prefs = links.prefs
         val seen = prefs.seenApps()
         val muted = seen.keys.count(prefs::isMuted)
         val tree = prefs.saveTree
@@ -378,8 +406,7 @@ class MainActivity : ComponentActivity() {
             if (Build.VERSION.SDK_INT >= 33) {
                 SettingRow(Icons.Rounded.Tune, "Quick Settings tile", "Send the clipboard from anywhere", onClick = ::addTile)
             }
-            SettingRow(Icons.Rounded.QrCodeScanner, "Pair with another computer", "Replaces ${prefs.serverName}", onClick = ::startScan)
-            SettingRow(Icons.Rounded.LinkOff, "Unpair", "Forget ${prefs.serverName}", danger = true, onClick = onUnpair)
+            SettingRow(Icons.Rounded.Add, "Add computer", "Pair with another computer", onClick = ::startScan)
         }
     }
 
@@ -388,7 +415,7 @@ class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     private fun AppsScreen() {
-        val prefs = link.prefs
+        val prefs = links.prefs
         val apps = remember { prefs.seenApps().entries.sortedBy { it.value.lowercase() } }
         val enabled = remember { mutableStateMapOf<String, Boolean>().apply { apps.forEach { put(it.key, !prefs.isMuted(it.key)) } } }
 

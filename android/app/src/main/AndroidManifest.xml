@@ -26,7 +26,18 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- Pairing links, e.g. from an external QR scanner. -->
+        </activity>
+
+        <!-- Pairing links, e.g. from an external QR scanner. Received in a
+             task of its own so Android can't swallow the link by just
+             bringing an existing task to the front. -->
+        <activity
+            android:name=".PairLinkActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />

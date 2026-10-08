@@ -5,7 +5,9 @@ plugins {
 
 android {
     namespace = "dev.tether"
-    compileSdk = 36
+    compileSdk {
+        version = release(37) { minorApiLevel = 2 }
+    }
     buildToolsVersion = "36.1.0"
 
     defaultConfig {
@@ -34,9 +36,9 @@ android {
 }
 
 dependencies {
-    implementation("com.squareup.okhttp3:okhttp:5.3.2")
+    implementation("com.squareup.okhttp3:okhttp:5.5.0")
     implementation("androidx.activity:activity-compose:1.13.0")
-    implementation(platform("androidx.compose:compose-bom:2026.06.01"))
+    implementation(platform("androidx.compose:compose-bom:2026.09.00"))
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.ui:ui")
     // Only the handful of icons used survive R8 in release builds.

@@ -19,7 +19,21 @@ object Proto {
     fun ack(id: String): JSONObject = JSONObject().put("v", VERSION).put("type", "ack").put("ref", id)
 }
 
-data class Server(val name: String, val fp: String, val addrs: List<String>)
+data class Server(val name: String, val fp: String, val addrs: List<String>, val lastAddr: String? = null) {
+    val id get() = fp
+
+    fun toJson(): JSONObject = JSONObject()
+        .put("name", name).put("fp", fp).put("addrs", JSONArray(addrs)).put("last_addr", lastAddr)
+
+    companion object {
+        fun fromJson(o: JSONObject) = Server(
+            name = o.optString("name", "desktop"),
+            fp = o.getString("fp"),
+            addrs = o.optJSONArray("addrs")?.let { a -> List(a.length()) { a.getString(it) } }.orEmpty(),
+            lastAddr = o.optString("last_addr").ifEmpty { null },
+        )
+    }
+}
 
 /** A `tether://pair?...` link from the desktop's QR code. */
 data class Offer(val name: String, val fp: String, val token: String, val addrs: List<String>) {
@@ -39,30 +53,50 @@ data class Offer(val name: String, val fp: String, val token: String, val addrs:
 class Prefs(ctx: Context) {
     private val sp = ctx.getSharedPreferences("tether", Context.MODE_PRIVATE)
 
-    var server: Server?
-        get() {
-            val fp = sp.getString("fp", null) ?: return null
-            val addrs = sp.getString("addrs", "")!!.split(",").filter { it.isNotBlank() }
-            return Server(sp.getString("name", "desktop")!!, fp, addrs)
-        }
-        set(s) {
-            sp.edit().apply {
-                if (s == null) {
-                    remove("fp"); remove("addrs"); remove("name"); remove("last_addr")
-                } else {
-                    putString("fp", s.fp); putString("addrs", s.addrs.joinToString(",")); putString("name", s.name)
-                }
-            }.apply()
-        }
+    init {
+        migrateSingleServer()
+    }
 
-    var serverName: String
-        get() = sp.getString("name", "desktop")!!
-        set(v) = sp.edit().putString("name", v).apply()
+    /** Paired computers, in pairing order. */
+    @Synchronized
+    fun servers(): List<Server> {
+        val a = JSONArray(sp.getString("servers", "[]")!!)
+        return List(a.length()) { Server.fromJson(a.getJSONObject(it)) }
+    }
 
-    /** The address that worked last time is tried first. */
-    var lastAddr: String?
-        get() = sp.getString("last_addr", null)
-        set(v) = sp.edit().putString("last_addr", v).apply()
+    fun server(id: String): Server? = servers().find { it.id == id }
+
+    /** Adds [s], or replaces the entry for the same computer. */
+    @Synchronized
+    fun putServer(s: Server) {
+        val list = servers().toMutableList()
+        val i = list.indexOfFirst { it.id == s.id }
+        if (i >= 0) list[i] = s else list.add(s)
+        save(list)
+    }
+
+    @Synchronized
+    fun updateServer(id: String, f: (Server) -> Server) {
+        save(servers().map { if (it.id == id) f(it) else it })
+    }
+
+    @Synchronized
+    fun removeServer(id: String) {
+        save(servers().filter { it.id != id })
+    }
+
+    private fun save(list: List<Server>) {
+        sp.edit().putString("servers", JSONArray(list.map { it.toJson() }).toString()).apply()
+    }
+
+    /** Versions before multi-computer support stored one server in flat keys. */
+    private fun migrateSingleServer() {
+        val fp = sp.getString("fp", null) ?: return
+        val addrs = sp.getString("addrs", "")!!.split(",").filter { it.isNotBlank() }
+        val old = Server(sp.getString("name", "desktop")!!, fp, addrs, sp.getString("last_addr", null))
+        if (servers().none { it.id == fp }) save(servers() + old)
+        sp.edit().remove("fp").remove("addrs").remove("name").remove("last_addr").apply()
+    }
 
     /** Folder picked for received files (a document tree URI), or null for Downloads. */
     var saveTree: Uri?
@@ -106,6 +140,7 @@ open class JsonList(private val file: File) {
     }
 
     protected fun save() {
+        file.parentFile?.mkdirs()
         val tmp = File(file.path + ".tmp")
         tmp.writeText(JSONArray(items).toString())
         tmp.renameTo(file)

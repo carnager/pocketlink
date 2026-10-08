@@ -31,12 +31,12 @@ import org.json.JSONObject
  * Resumable file transfer; see internal/xfer in the Go code. Pending
  * transfers are persisted and continue whenever the connection comes back.
  */
-class Transfers(private val ctx: Context, private val link: Link) {
-    private val exec = Executors.newSingleThreadExecutor { Thread(it, "tether-xfer") }
-    private val uploads = TransferList(File(ctx.filesDir, "uploads.json"))
-    private val downloads = TransferList(File(ctx.filesDir, "downloads.json"))
-    private val upDir = File(ctx.cacheDir, "uploads")
-    private val downDir = File(ctx.cacheDir, "downloads")
+class Transfers(private val ctx: Context, private val link: Link, dataDir: File, cacheDir: File) {
+    private val exec = Executors.newSingleThreadExecutor { Thread(it, "tether-xfer-${link.id.take(6)}") }
+    private val uploads = TransferList(File(dataDir, "uploads.json"))
+    private val downloads = TransferList(File(dataDir, "downloads.json"))
+    private val upDir = File(cacheDir, "uploads")
+    private val downDir = File(cacheDir, "downloads")
     private val nm = ctx.getSystemService(NotificationManager::class.java)
     private var lastProgress = 0L
 
@@ -144,7 +144,7 @@ class Transfers(private val ctx: Context, private val link: Link) {
         File(rec.getString("path")).delete()
         uploads.remove(rec.getString("id"))
         val name = rec.getString("name")
-        finished(rec.getString("id").hashCode(), "Sent $name", "to ${link.prefs.serverName}", null)
+        finished(rec.getString("id").hashCode(), "Sent $name", "to ${link.name}", null)
     }
 
     private fun runDownloads() {
@@ -197,7 +197,7 @@ class Transfers(private val ctx: Context, private val link: Link) {
         link.send("file.done", JSONObject().put("id", id))
         val view = Intent(Intent.ACTION_VIEW).setDataAndType(uri, offer.optString("mime"))
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-        finished(id.hashCode(), "Received $name", "from ${link.prefs.serverName}", view)
+        finished(id.hashCode(), "Received $name", "from ${link.name}", view)
     }
 
     private fun copy(input: InputStream, part: File, append: Boolean, id: String, name: String, start: Long, size: Long) {
@@ -216,7 +216,7 @@ class Transfers(private val ctx: Context, private val link: Link) {
 
     /** Moves a finished download to the chosen folder, or Downloads. */
     private fun publish(part: File, name: String, mime: String): Uri {
-        link.prefs.saveTree?.let { tree ->
+        Links.get(ctx).prefs.saveTree?.let { tree ->
             try {
                 return publishToTree(tree, part, name, mime)
             } catch (e: Exception) {
