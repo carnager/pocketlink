@@ -19,6 +19,8 @@ const (
 	TypeClipSet      = "clip.set"
 	TypeFileOffer    = "file.offer"
 	TypeFileDone     = "file.done"
+	TypeMediaState   = "media.state"
+	TypeMediaCmd     = "media.cmd"
 )
 
 // Envelope is a single protocol frame. A frame with an ID must be
@@ -101,5 +103,5 @@ func Decode[T any](e Envelope) (T, error) {
 // Coalesces reports whether a newer pending frame of this type makes older
 // pending frames of the same type obsolete.
 func Coalesces(typ string) bool {
-	return typ == TypeClipSet
+	return typ == TypeClipSet || typ == TypeMediaState
 }

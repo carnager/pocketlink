@@ -193,6 +193,7 @@ class Links private constructor(private val ctx: Context) {
 class Link internal constructor(private val ctx: Context, val id: String, private val links: Links) {
     private val dir = File(ctx.filesDir, "servers/${id.take(16)}")
     val transfers = Transfers(ctx, this, dir, File(ctx.cacheDir, "servers/${id.take(16)}"))
+    val remote = Remote(ctx, this)
 
     private val exec = Executors.newSingleThreadScheduledExecutor { Thread(it, "tether-link-${id.take(6)}") }
     private val outbox = Outbox(File(dir, "outbox.json"))
@@ -233,6 +234,14 @@ class Link internal constructor(private val ctx: Context, val id: String, privat
     fun send(type: String, body: JSONObject) = run {
         outbox.push(Proto.frame(type, body))
         flush()
+    }
+
+    /**
+     * Sends a frame only if connected right now, without queueing or acks.
+     * For commands that would do the wrong thing if delivered late.
+     */
+    fun sendLive(type: String, body: JSONObject) = run {
+        if (connected) ws?.send(Proto.frame(type, body, acked = false).toString())
     }
 
     /** Stops this connection; deletes its queued data unless [keepData]. */
@@ -329,6 +338,7 @@ class Link internal constructor(private val ctx: Context, val id: String, privat
             Log.i(TAG, "disconnected from $name: ${t?.message}")
             connected = false
             target = null
+            remote.clear()
             setStatus(Status.OFFLINE)
             backoff = MIN_BACKOFF
             scheduleRetry()
@@ -378,6 +388,7 @@ class Link internal constructor(private val ctx: Context, val id: String, privat
         when (type) {
             "clip.set" -> Clip.set(ctx, body.optString("text"))
             "file.offer" -> transfers.offered(body)
+            "media.state" -> remote.update(body)
             else -> Log.d(TAG, "ignoring $type")
         }
     }
@@ -399,6 +410,7 @@ class Link internal constructor(private val ctx: Context, val id: String, privat
         connected = false
         connecting = false
         target = null
+        remote.clear()
         if (status != Status.REJECTED) setStatus(Status.OFFLINE)
     }
 

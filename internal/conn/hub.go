@@ -32,6 +32,10 @@ import (
 type Handler func(dev pair.Device, e proto.Envelope) error
 
 type Hub struct {
+	// OnConnect, if set, runs when a device connects, before queued frames
+	// are delivered; frames it sends go out on the new connection.
+	OnConnect func(pair.Device)
+
 	ctx      context.Context
 	name     string
 	store    *pair.Store
@@ -102,6 +106,9 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	s := &session{dev: dev, c: c, q: q, addr: r.RemoteAddr, cancel: cancel}
 	h.attach(s)
+	if h.OnConnect != nil {
+		h.OnConnect(dev)
+	}
 	slog.Info("device connected", "name", dev.Name, "addr", r.RemoteAddr, "pending", q.Len())
 	err = s.run(ctx, h)
 	h.detach(s)

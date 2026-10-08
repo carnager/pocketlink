@@ -53,6 +53,7 @@ object Notifs {
     const val LINK = "link"
     const val TRANSFERS = "transfers"
     const val FILES = "files"
+    const val MEDIA = "media"
     const val LINK_ID = 1
 
     fun setup(ctx: Context) {
@@ -61,6 +62,7 @@ object Notifs {
                 NotificationChannel(LINK, "Connection status", NotificationManager.IMPORTANCE_MIN),
                 NotificationChannel(TRANSFERS, "Transfer progress", NotificationManager.IMPORTANCE_LOW),
                 NotificationChannel(FILES, "Finished transfers", NotificationManager.IMPORTANCE_DEFAULT),
+                NotificationChannel(MEDIA, "Media remote", NotificationManager.IMPORTANCE_LOW),
             )
         )
     }

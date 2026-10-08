@@ -23,6 +23,7 @@ import (
 	"tether/internal/config"
 	"tether/internal/conn"
 	"tether/internal/control"
+	"tether/internal/media"
 	"tether/internal/notify"
 	"tether/internal/pair"
 	"tether/internal/proto"
@@ -88,14 +89,45 @@ func runDaemon(args []string) error {
 	}
 	go housekeeping(ctx, incoming, outgoing)
 
+	var hub *conn.Hub
+	players, err := media.New(func(st media.State) {
+		if err := hub.Broadcast(proto.TypeMediaState, st); err != nil {
+			slog.Warn("sending media state", "err", err)
+		}
+	})
+	if err != nil {
+		return fmt.Errorf("media: %w", err)
+	}
+
 	pairing := &pair.Pairing{}
-	hub := conn.NewHub(ctx, *name, store, pairing, filepath.Join(stateDir, "queue"), dispatch(sink, clipboard, outgoing))
+	hub = conn.NewHub(ctx, *name, store, pairing, filepath.Join(stateDir, "queue"), dispatch(sink, clipboard, outgoing, players))
+	// A phone that just connected (or restarted) needs the current state,
+	// which may not have changed since it last got it.
+	hub.OnConnect = func(dev pair.Device) {
+		if err := hub.Send(dev.ID, proto.TypeMediaState, players.State()); err != nil {
+			slog.Warn("sending media state", "err", err)
+		}
+	}
+	go players.Run(ctx)
 
 	mux := http.NewServeMux()
 	mux.Handle("GET /ws", hub)
 	mux.HandleFunc("PUT /files/in/{id}", incoming.ServePUT)
 	mux.HandleFunc("HEAD /files/in/{id}", incoming.ServeHEAD)
 	mux.Handle("GET /files/out/{id}", outgoing)
+	mux.HandleFunc("GET /media/art/{key}", func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := store.Peer(r.TLS); !ok {
+			http.Error(w, "not paired", http.StatusForbidden)
+			return
+		}
+		data, err := players.Art(r.Context(), r.PathValue("key"))
+		if err != nil {
+			http.Error(w, "no art", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", http.DetectContentType(data))
+		w.Write(data)
+	})
 	srv := &http.Server{
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
@@ -173,7 +205,7 @@ func runDaemon(args []string) error {
 	return srv.Shutdown(shutdownCtx)
 }
 
-func dispatch(sink *notify.Sink, clipboard *clip.Clipboard, outgoing *xfer.Outgoing) conn.Handler {
+func dispatch(sink *notify.Sink, clipboard *clip.Clipboard, outgoing *xfer.Outgoing, players *media.Watcher) conn.Handler {
 	return func(dev pair.Device, e proto.Envelope) error {
 		switch e.Type {
 		case proto.TypeNotifPosted:
@@ -200,6 +232,12 @@ func dispatch(sink *notify.Sink, clipboard *clip.Clipboard, outgoing *xfer.Outgo
 				return err
 			}
 			return outgoing.Done(dev.ID, d.ID)
+		case proto.TypeMediaCmd:
+			c, err := proto.Decode[media.Command](e)
+			if err != nil {
+				return err
+			}
+			return players.Command(c)
 		default:
 			slog.Debug("ignoring unknown frame type", "type", e.Type)
 			return nil
