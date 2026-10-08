@@ -243,7 +243,11 @@ class MainActivity : ComponentActivity() {
                 if (all.isEmpty()) {
                     item { PairCard() }
                 } else {
-                    items(all, key = { it.id }) { ComputerCard(it, onUnpair = { confirmUnpair = it }) }
+                    // Pass plain values: Link isn't Compose state, and with strong skipping a
+                    // card given the same Link object would never redraw its status.
+                    items(all, key = { it.id }) { link ->
+                        ComputerCard(link.name, link.status, onPairAgain = ::startScan, onUnpair = { confirmUnpair = link })
+                    }
                     item {
                         pairingNote?.let { Text(it, Modifier.padding(horizontal = 8.dp), style = MaterialTheme.typography.bodyMedium) }
                         FilledTonalButton(
@@ -307,9 +311,8 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun ComputerCard(link: Link, onUnpair: () -> Unit) {
+    private fun ComputerCard(name: String, status: Status, onPairAgain: () -> Unit, onUnpair: () -> Unit) {
         val c = MaterialTheme.colorScheme
-        val status = link.status
         val (container, onContainer) = when (status) {
             Status.CONNECTED -> c.primaryContainer to c.onPrimaryContainer
             Status.REJECTED -> c.errorContainer to c.onErrorContainer
@@ -328,9 +331,9 @@ class MainActivity : ComponentActivity() {
             Column(Modifier.padding(start = 20.dp, top = 20.dp, bottom = 20.dp, end = 8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.weight(1f)) {
-                        StatusHeader(icon, onContainer, link.name, status.describe())
+                        StatusHeader(icon, onContainer, name, status.describe())
                     }
-                    IconButton(onClick = onUnpair) { Icon(Icons.Rounded.LinkOff, "Unpair ${link.name}") }
+                    IconButton(onClick = onUnpair) { Icon(Icons.Rounded.LinkOff, "Unpair $name") }
                 }
                 if (status == Status.CONNECTING) {
                     Spacer(Modifier.height(12.dp))
@@ -338,7 +341,7 @@ class MainActivity : ComponentActivity() {
                 }
                 if (status == Status.REJECTED) {
                     Spacer(Modifier.height(12.dp))
-                    Button(onClick = ::startScan) { Text("Pair again") }
+                    Button(onClick = onPairAgain) { Text("Pair again") }
                 }
             }
         }
@@ -417,6 +420,7 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun SettingsCard() {
+        @Suppress("UNUSED_VARIABLE") val t = tick // prefs aren't Compose state; redraw when they may have changed
         val prefs = links.prefs
         val seen = prefs.seenApps()
         val muted = seen.keys.count(prefs::isMuted)
