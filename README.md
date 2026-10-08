@@ -60,9 +60,12 @@ systemctl --user enable --now pocketlink
 Android app (Android 10+):
 
 ```sh
-cd android && ./gradlew assembleDebug
-adb install app/build/outputs/apk/debug/app-debug.apk
+cd android && ./gradlew assembleRelease   # ~3 MB, minified
+adb install app/build/outputs/apk/release/app-release.apk
 ```
+
+Without signing keys configured this is signed with your debug key; see
+[android/SIGNING.md](android/SIGNING.md) for release signing.
 
 The daemon needs `WAYLAND_DISPLAY` in the systemd user environment for clipboard
 sync. niri-session sets it up; on sway add

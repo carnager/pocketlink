@@ -1,0 +1,7 @@
+# Template for release signing. Copy it OUTSIDE the repository, e.g. to
+# ~/.local/android/release-keys/pocketlink.properties, and fill it in.
+# See SIGNING.md. Never commit the real file.
+POCKETLINK_ANDROID_STORE_FILE=/home/you/.local/android/release-keys/release.keystore
+POCKETLINK_ANDROID_STORE_PASSWORD=change-me
+POCKETLINK_ANDROID_KEY_ALIAS=pocketlink
+POCKETLINK_ANDROID_KEY_PASSWORD=change-me

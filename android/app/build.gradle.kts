@@ -1,7 +1,23 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+
+// Release signing: ~/.local/android/release-keys/pocketlink.properties (or the
+// file named by POCKETLINK_ANDROID_SIGNING_PROPERTIES), or the same keys as
+// environment variables. Without them, release builds use the debug key.
+val releaseSigningProperties = Properties()
+val releaseSigningPropertiesFile = file(
+    System.getenv("POCKETLINK_ANDROID_SIGNING_PROPERTIES")
+        ?: "${System.getProperty("user.home")}/.local/android/release-keys/pocketlink.properties"
+)
+if (releaseSigningPropertiesFile.isFile) {
+    releaseSigningPropertiesFile.inputStream().use(releaseSigningProperties::load)
+}
+
+fun signingValue(name: String): String? = System.getenv(name) ?: releaseSigningProperties.getProperty(name)
 
 android {
     namespace = "io.github.carnager.pocketlink"
@@ -18,10 +34,26 @@ android {
         versionName = "0.1.0"
     }
 
+    signingConfigs {
+        create("release") {
+            signingValue("POCKETLINK_ANDROID_STORE_FILE")?.let { storeFile = file(it) }
+            storePassword = signingValue("POCKETLINK_ANDROID_STORE_PASSWORD")
+            keyAlias = signingValue("POCKETLINK_ANDROID_KEY_ALIAS")
+            keyPassword = signingValue("POCKETLINK_ANDROID_KEY_PASSWORD")
+        }
+    }
+
     buildTypes {
         release {
+            // R8 drops unused code, which is most of Compose's icon set.
             isMinifyEnabled = true
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = if (signingValue("POCKETLINK_ANDROID_STORE_FILE") != null) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 

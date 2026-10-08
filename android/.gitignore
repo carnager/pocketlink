@@ -2,3 +2,10 @@
 build/
 app/build/
 local.properties
+
+# Signing material never belongs in the repository; see SIGNING.md.
+*.jks
+*.keystore
+*.p12
+signing.properties
+pocketlink.properties

@@ -431,6 +431,7 @@ class MainActivity : ComponentActivity() {
                 Icons.Rounded.Notifications, "Forwarded notifications",
                 when {
                     seen.isEmpty() -> "All apps"
+                    muted == 0 && seen.size == 1 -> "1 app so far"
                     muted == 0 -> "All ${seen.size} apps"
                     else -> "${seen.size - muted} of ${seen.size} apps"
                 },
