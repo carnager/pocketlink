@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.SystemClock
+import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.util.Log
@@ -43,7 +44,7 @@ class Transfers(private val ctx: Context, private val link: Link) {
      * Copies shared content into our cache first: the permission to read it
      * is temporary, and a local copy lets the upload resume at any time.
      */
-    fun share(uris: List<Uri>) = exec.execute {
+    fun share(uris: List<Uri>) = guarded {
         upDir.mkdirs()
         for (uri in uris) {
             val name = displayName(uri)
@@ -63,22 +64,31 @@ class Transfers(private val ctx: Context, private val link: Link) {
     }
 
     /** The desktop offered a file (frame already acked). */
-    fun offered(offer: JSONObject) = exec.execute {
+    fun offered(offer: JSONObject) = guarded {
         if (!downloads.contains(offer.getString("id"))) downloads.add(offer)
         runDownloads()
     }
 
     /** The connection came up: continue whatever is pending. */
-    fun kick() = exec.execute {
+    fun kick() = guarded {
         runUploads()
         runDownloads()
     }
 
-    fun reset() = exec.execute {
+    fun reset() = guarded {
         uploads.clear()
         downloads.clear()
         upDir.deleteRecursively()
         downDir.deleteRecursively()
+    }
+
+    /** Runs [task] on the transfer thread, logging what would otherwise vanish in the executor. */
+    private fun guarded(task: () -> Unit) = exec.execute {
+        try {
+            task()
+        } catch (e: Exception) {
+            Log.e(TAG, "transfer task failed", e)
+        }
     }
 
     private fun runUploads() {
@@ -204,8 +214,35 @@ class Transfers(private val ctx: Context, private val link: Link) {
         }
     }
 
-    /** Moves a finished download into the public Downloads collection. */
+    /** Moves a finished download to the chosen folder, or Downloads. */
     private fun publish(part: File, name: String, mime: String): Uri {
+        link.prefs.saveTree?.let { tree ->
+            try {
+                return publishToTree(tree, part, name, mime)
+            } catch (e: Exception) {
+                // Typically the folder was deleted or access was revoked.
+                Log.w(TAG, "saving to chosen folder failed, using Downloads", e)
+            }
+        }
+        return publishToDownloads(part, name, mime)
+    }
+
+    private fun publishToTree(tree: Uri, part: File, name: String, mime: String): Uri {
+        val resolver = ctx.contentResolver
+        val dir = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
+        // The provider picks a unique name if one is taken.
+        val uri = DocumentsContract.createDocument(resolver, dir, mime, name)
+            ?: throw IOException("could not create $name")
+        try {
+            resolver.openOutputStream(uri)!!.use { out -> part.inputStream().use { it.copyTo(out) } }
+        } catch (e: Exception) {
+            DocumentsContract.deleteDocument(resolver, uri)
+            throw e
+        }
+        return uri
+    }
+
+    private fun publishToDownloads(part: File, name: String, mime: String): Uri {
         val resolver = ctx.contentResolver
         val values = ContentValues().apply {
             put(MediaStore.Downloads.DISPLAY_NAME, name)

@@ -165,17 +165,22 @@ class NotifListener : NotificationListenerService() {
             ?.toString().orEmpty()
         if (title.isEmpty() && text.isEmpty()) return
 
+        val link = Link.get(this)
+        val label = appLabel(sbn.packageName)
+        link.prefs.addSeenApp(sbn.packageName, label)
+        if (link.prefs.isMuted(sbn.packageName)) return
+
         // Apps re-post unchanged notifications a lot; only send real changes.
         val hash = "$title\u0000$text".hashCode()
         if (sent[sbn.key] == hash) return
         sent[sbn.key] = hash
 
-        Link.get(this).send(
+        link.send(
             "notif.posted",
             JSONObject()
                 .put("key", sbn.key)
                 .put("app", sbn.packageName)
-                .put("app_name", appLabel(sbn.packageName))
+                .put("app_name", label)
                 .put("title", title)
                 .put("text", text)
                 .put("time", sbn.postTime),

@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
+import android.provider.DocumentsContract
 import android.provider.Settings
 import android.util.TypedValue
 import android.view.View
@@ -27,10 +28,23 @@ class MainActivity : ComponentActivity() {
     private lateinit var status: TextView
     private lateinit var setup: LinearLayout
     private lateinit var unpair: Button
+    private lateinit var saveTo: Button
+    private lateinit var resetSaveTo: Button
     private var unobserve: (() -> Unit)? = null
 
     private val scan = registerForActivityResult(ScanContract()) { r -> r.contents?.let(::pair) }
     private val askNotify = registerForActivityResult(ActivityResultContracts.RequestPermission()) { refresh() }
+    private val pickFolder = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { tree ->
+        if (tree != null) {
+            // Keep access across reboots.
+            contentResolver.takePersistableUriPermission(
+                tree, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            )
+            link.prefs.saveTree?.let { old -> if (old != tree) releaseFolder(old) }
+            link.prefs.saveTree = tree
+        }
+        refresh()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -71,6 +85,17 @@ class MainActivity : ComponentActivity() {
         root.addView(button("Send clipboard to desktop") {
             toast(if (Clip.sendCurrent(this)) "Clipboard sent" else "Clipboard is empty")
         })
+        root.addView(button("Choose forwarded notifications") {
+            startActivity(Intent(this, AppsActivity::class.java))
+        })
+        saveTo = button("") { pickFolder.launch(link.prefs.saveTree) }
+        root.addView(saveTo)
+        resetSaveTo = button("Save received files to Downloads") {
+            link.prefs.saveTree?.let(::releaseFolder)
+            link.prefs.saveTree = null
+            refresh()
+        }
+        root.addView(resetSaveTo)
 
         setup = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -159,6 +184,23 @@ class MainActivity : ComponentActivity() {
             setup.addView(TextView(this).apply { text = "Setup needed for reliable syncing" }, 0)
         }
         unpair.visibility = if (link.prefs.server != null) View.VISIBLE else View.GONE
+
+        val tree = link.prefs.saveTree
+        saveTo.text = "Received files go to: ${tree?.let(::folderLabel) ?: "Downloads"}"
+        resetSaveTo.visibility = if (tree != null) View.VISIBLE else View.GONE
+    }
+
+    /** "primary:Documents/tether" -> "Documents/tether". */
+    private fun folderLabel(tree: Uri): String =
+        DocumentsContract.getTreeDocumentId(tree).substringAfter(':').ifEmpty { "storage root" }
+
+    private fun releaseFolder(tree: Uri) {
+        try {
+            contentResolver.releasePersistableUriPermission(
+                tree, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            )
+        } catch (_: SecurityException) {
+        }
     }
 
     private fun button(label: String, onClick: () -> Unit) = Button(this).apply {

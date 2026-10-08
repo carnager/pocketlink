@@ -63,6 +63,32 @@ class Prefs(ctx: Context) {
     var lastAddr: String?
         get() = sp.getString("last_addr", null)
         set(v) = sp.edit().putString("last_addr", v).apply()
+
+    /** Folder picked for received files (a document tree URI), or null for Downloads. */
+    var saveTree: Uri?
+        get() = sp.getString("save_tree", null)?.let(Uri::parse)
+        set(v) = sp.edit().putString("save_tree", v?.toString()).apply()
+
+    /** Apps whose notifications are not forwarded. */
+    fun isMuted(pkg: String) = pkg in sp.getStringSet("muted", emptySet())!!
+
+    fun setMuted(pkg: String, muted: Boolean) {
+        val set = sp.getStringSet("muted", emptySet())!!.toMutableSet()
+        if (muted) set.add(pkg) else set.remove(pkg)
+        sp.edit().putStringSet("muted", set).apply()
+    }
+
+    /** Apps that have posted notifications, package -> label, for the filter screen. */
+    fun seenApps(): Map<String, String> {
+        val o = JSONObject(sp.getString("seen_apps", "{}")!!)
+        return o.keys().asSequence().associateWith { o.getString(it) }
+    }
+
+    fun addSeenApp(pkg: String, label: String) {
+        val o = JSONObject(sp.getString("seen_apps", "{}")!!)
+        if (o.optString(pkg) == label) return
+        sp.edit().putString("seen_apps", o.put(pkg, label).toString()).apply()
+    }
 }
 
 /**
