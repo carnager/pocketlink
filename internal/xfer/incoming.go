@@ -51,13 +51,13 @@ var idRE = regexp.MustCompile(`^[A-Za-z0-9_-]{8,64}$`)
 var errSuperseded = errors.New("superseded by a newer request for the same transfer")
 
 type Incoming struct {
-	dir     string // partial uploads, per device
-	destDir string // where finished files go
-	store   *pair.Store
-	onDone  func(dev pair.Device, path string)
+	dir    string // partial uploads, per device
+	store  *pair.Store
+	onDone func(dev pair.Device, path string)
 
-	mu     sync.Mutex
-	active map[string]*upload
+	mu      sync.Mutex
+	destDir string // where finished files go
+	active  map[string]*upload
 }
 
 type upload struct {
@@ -173,7 +173,7 @@ func (in *Incoming) ServePUT(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	saved, err := finish(partPath, in.destDir, m.Name)
+	saved, err := finish(partPath, in.DestDir(), m.Name)
 	if err != nil {
 		slog.Error("saving received file", "name", m.Name, "err", err)
 		http.Error(w, "could not save file", http.StatusInternalServerError)
@@ -189,6 +189,21 @@ func (in *Incoming) ServePUT(w http.ResponseWriter, r *http.Request) {
 	}
 	setProgress(w, m, cur)
 	w.WriteHeader(http.StatusCreated)
+}
+
+// DestDir returns where finished files are saved.
+func (in *Incoming) DestDir() string {
+	in.mu.Lock()
+	defer in.mu.Unlock()
+	return in.destDir
+}
+
+// SetDestDir changes where finished files are saved, from the next
+// completed transfer on.
+func (in *Incoming) SetDestDir(dir string) {
+	in.mu.Lock()
+	defer in.mu.Unlock()
+	in.destDir = dir
 }
 
 // Cleanup deletes abandoned partial uploads and old completion records.

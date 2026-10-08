@@ -13,12 +13,14 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/adrg/xdg"
 
 	"tether/internal/clip"
+	"tether/internal/config"
 	"tether/internal/conn"
 	"tether/internal/control"
 	"tether/internal/notify"
@@ -30,14 +32,26 @@ import (
 const pairTTL = 5 * time.Minute
 
 func runDaemon(args []string) error {
-	hostname, _ := os.Hostname()
+	cfgPath := config.Path()
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		return err
+	}
 	fs := flag.NewFlagSet("daemon", flag.ExitOnError)
-	listen := fs.String("listen", ":1764", "address for phone connections")
-	name := fs.String("name", hostname, "name shown on the phone")
-	watchClip := fs.Bool("clipboard", true, "send desktop clipboard changes to phones")
-	downloads := fs.String("downloads", defaultDownloads(), "directory for received files")
+	fs.StringVar(&cfg.Listen, "listen", cfg.Listen, "address for phone connections")
+	fs.StringVar(&cfg.Name, "name", cfg.Name, "name shown on the phone")
+	fs.BoolVar(&cfg.Clipboard, "clipboard", cfg.Clipboard, "send desktop clipboard changes to phones")
+	fs.StringVar(&cfg.Downloads, "downloads", cfg.Downloads, "directory for received files")
+	fs.Usage = func() {
+		fmt.Fprintf(fs.Output(), "usage: tether daemon [flags]\n\nFlags override %s for this run.\n\n", cfgPath)
+		fs.PrintDefaults()
+	}
 	fs.Parse(args)
+	// Flags given on the command line are not written back by `tether config`.
+	overridden := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { overridden[f.Name] = true })
 
+	name, listen := &cfg.Name, &cfg.Listen
 	host, port, err := net.SplitHostPort(*listen)
 	if err != nil {
 		return fmt.Errorf("-listen: %w", err)
@@ -63,7 +77,7 @@ func runDaemon(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	incoming := xfer.NewIncoming(filepath.Join(stateDir, "incoming"), *downloads, store, func(dev pair.Device, path string) {
+	incoming := xfer.NewIncoming(filepath.Join(stateDir, "incoming"), cfg.Downloads, store, func(dev pair.Device, path string) {
 		if err := sink.FileReceived(dev, path); err != nil {
 			slog.Warn("file notification", "err", err)
 		}
@@ -99,6 +113,13 @@ func runDaemon(args []string) error {
 		return err
 	}
 
+	watcher := &clipWatcher{ctx: ctx}
+	watcher.enable(cfg.Clipboard)
+	settings := &settingsState{path: cfgPath, cfg: cfg, overridden: overridden, apply: func(c config.Config) {
+		incoming.SetDestDir(c.Downloads)
+		watcher.enable(c.Clipboard)
+	}}
+
 	errc := make(chan error, 2)
 	go func() { errc <- srv.ServeTLS(ln, "", "") }()
 	go func() {
@@ -128,18 +149,15 @@ func runDaemon(args []string) error {
 				return nil, hub.Broadcast(proto.TypeClipSet, proto.ClipSet{Text: req.Text})
 			case "send":
 				return sendFiles(hub, store, outgoing, req)
+			case "config":
+				return settings.get(), nil
+			case "set":
+				return settings.set(req.Key, req.Value)
 			default:
 				return nil, fmt.Errorf("unknown command %q", req.Cmd)
 			}
 		})
 	}()
-	if *watchClip {
-		if exe, err := os.Executable(); err != nil {
-			slog.Warn("clipboard sync disabled", "err", err)
-		} else {
-			go clip.Watch(ctx, exe)
-		}
-	}
 
 	slog.Info("tether running", "name", *name, "listen", *listen, "fingerprint", pair.ShortID(fp))
 
@@ -245,11 +263,88 @@ func housekeeping(ctx context.Context, incoming *xfer.Incoming, outgoing *xfer.O
 	}
 }
 
-func defaultDownloads() string {
-	if d := xdg.UserDirs.Download; d != "" {
-		return d
+// settingsState is the live configuration, changed via `tether config`.
+type settingsState struct {
+	path       string
+	overridden map[string]bool
+	apply      func(config.Config)
+
+	mu  sync.Mutex
+	cfg config.Config
+}
+
+type configReply struct {
+	Config     config.Config `json:"config"`
+	Restart    bool          `json:"restart,omitempty"`    // a changed setting applies after a restart
+	Overridden []string      `json:"overridden,omitempty"` // settings fixed by daemon flags
+}
+
+func (s *settingsState) get() configReply {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r := configReply{Config: s.cfg}
+	for _, k := range config.Keys {
+		if s.overridden[k] {
+			r.Overridden = append(r.Overridden, k)
+		}
 	}
-	return filepath.Join(xdg.Home, "Downloads")
+	return r
+}
+
+func (s *settingsState) set(key, value string) (configReply, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.overridden[key] {
+		return configReply{}, fmt.Errorf("%s is set by a daemon flag; remove the flag to change it here", key)
+	}
+	next := s.cfg
+	if err := next.Set(key, value); err != nil {
+		return configReply{}, err
+	}
+	// Save what's on disk plus this one change, so flag overrides of other
+	// settings don't leak into the file.
+	onDisk, err := config.Load(s.path)
+	if err != nil {
+		return configReply{}, err
+	}
+	if err := onDisk.Set(key, value); err != nil {
+		return configReply{}, err
+	}
+	if err := onDisk.Save(s.path); err != nil {
+		return configReply{}, err
+	}
+	s.cfg = next
+	s.apply(next)
+	slog.Info("setting changed", "key", key, "value", value)
+	return configReply{Config: next, Restart: config.NeedsRestart(key)}, nil
+}
+
+// clipWatcher runs clip.Watch while clipboard sync is enabled.
+type clipWatcher struct {
+	ctx    context.Context
+	mu     sync.Mutex
+	cancel context.CancelFunc
+}
+
+func (w *clipWatcher) enable(on bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if on == (w.cancel != nil) {
+		return
+	}
+	if !on {
+		w.cancel()
+		w.cancel = nil
+		return
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		slog.Warn("clipboard sync disabled", "err", err)
+		return
+	}
+	ctx, cancel := context.WithCancel(w.ctx)
+	w.cancel = cancel
+	go clip.Watch(ctx, exe)
 }
 
 // localAddrs lists the addresses a phone could reach us on: the listen

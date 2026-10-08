@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/mdp/qrterminal/v3"
+	"rsc.io/qr"
 
 	"tether/internal/clip"
 	"tether/internal/conn"
@@ -26,13 +27,17 @@ const usage = `usage: tether <command> [args]
 
 commands:
   daemon            run the daemon (normally via systemd --user)
-  pair              show a QR code for pairing a phone
+  pair [-json] [-png FILE]
+                    show a QR code for pairing a phone
   status [-json]    show paired devices
   unpair <device>   forget a device (ID prefix or name)
   clip [text]       send text, piped stdin, or else the desktop clipboard
                     to all phones' clipboards
   send [-to DEV] FILE...
                     send files to a phone (default: all paired phones)
+  config [-json] [KEY VALUE]
+                    show settings, or change one (name, listen, downloads,
+                    clipboard)
 `
 
 type statusReply struct {
@@ -45,6 +50,7 @@ type statusReply struct {
 type pairReply struct {
 	URI     string    `json:"uri"`
 	Expires time.Time `json:"expires"`
+	PNG     string    `json:"png,omitempty"`
 }
 
 func main() {
@@ -58,7 +64,7 @@ func main() {
 	case "daemon":
 		err = runDaemon(args)
 	case "pair":
-		err = runPair()
+		err = runPair(args)
 	case "status":
 		err = runStatus(args)
 	case "unpair":
@@ -67,6 +73,8 @@ func main() {
 		err = runClip(args)
 	case "send":
 		err = runSend(args)
+	case "config":
+		err = runConfig(args)
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 	default:
@@ -79,10 +87,29 @@ func main() {
 	}
 }
 
-func runPair() error {
+func runPair(args []string) error {
+	fs := flag.NewFlagSet("pair", flag.ExitOnError)
+	asJSON := fs.Bool("json", false, "print JSON instead of a terminal QR code")
+	png := fs.String("png", "", "also write the QR code as a PNG image to `FILE`")
+	fs.Parse(args)
+
 	var r pairReply
 	if err := control.Call(control.Request{Cmd: "pair"}, &r); err != nil {
 		return err
+	}
+	if *png != "" {
+		code, err := qr.Encode(r.URI, qr.L)
+		if err != nil {
+			return err
+		}
+		code.Scale = 8
+		if err := os.WriteFile(*png, code.PNG(), 0o600); err != nil {
+			return err
+		}
+		r.PNG = *png
+	}
+	if *asJSON {
+		return json.NewEncoder(os.Stdout).Encode(r)
 	}
 	qrterminal.GenerateHalfBlock(r.URI, qrterminal.L, os.Stdout)
 	fmt.Printf("\nScan with the tether app, or pass to tether-sim:\n%s\n\nValid until %s.\n",
@@ -122,6 +149,37 @@ func runStatus(args []string) error {
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%s\n", pair.ShortID(d.ID), d.Name, state, d.Pending, seen)
 	}
 	return tw.Flush()
+}
+
+func runConfig(args []string) error {
+	fs := flag.NewFlagSet("config", flag.ExitOnError)
+	asJSON := fs.Bool("json", false, "print JSON")
+	fs.Parse(args)
+
+	var r configReply
+	var err error
+	switch fs.NArg() {
+	case 0:
+		err = control.Call(control.Request{Cmd: "config"}, &r)
+	case 2:
+		err = control.Call(control.Request{Cmd: "set", Key: fs.Arg(0), Value: fs.Arg(1)}, &r)
+	default:
+		return errors.New("usage: tether config [-json] [KEY VALUE]")
+	}
+	if err != nil {
+		return err
+	}
+	if *asJSON {
+		return json.NewEncoder(os.Stdout).Encode(r)
+	}
+	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	c := r.Config
+	fmt.Fprintf(tw, "name\t%s\nlisten\t%s\ndownloads\t%s\nclipboard\t%t\n", c.Name, c.Listen, c.Downloads, c.Clipboard)
+	tw.Flush()
+	if r.Restart {
+		fmt.Println("\nRestart the daemon for this change to take effect.")
+	}
+	return nil
 }
 
 func runUnpair(args []string) error {
