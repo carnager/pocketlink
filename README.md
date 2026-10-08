@@ -37,7 +37,13 @@ from the AUR, then `systemctl --user enable --now pocketlink`.
 
 Android: the APK is attached to the
 [latest release](https://github.com/carnager/pocketlink/releases/latest),
-or build it yourself (below).
+or build it yourself (below). [Obtainium](https://obtainium.imranr.dev/) can
+install and update it straight from this repository.
+
+If the notification access switch is greyed out ("restricted setting"),
+Android is blocking it because the APK was installed from a browser download:
+open the app's *App info*, tap ⋮ → *Allow restricted settings*, and try again.
+Installing with Obtainium, F-Droid or `adb install` avoids this.
 
 From source, desktop (needs Go ≥ 1.24, `wl-clipboard`, a notification daemon, and
 `wpctl` for lowering the volume during calls):

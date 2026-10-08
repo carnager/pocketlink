@@ -115,6 +115,9 @@ private class Requirement(
     val icon: ImageVector,
     val title: String,
     val why: String,
+    /** Extra help, with a button for it, for when granting isn't straightforward. */
+    val hint: String? = null,
+    val hintAction: Pair<String, () -> Unit>? = null,
     val grant: () -> Unit,
 )
 
@@ -360,7 +363,14 @@ class MainActivity : ComponentActivity() {
         val out = mutableListOf<Requirement>()
         val nm = getSystemService(NotificationManager::class.java)
         if (!nm.isNotificationListenerAccessGranted(ComponentName(this, NotifListener::class.java))) {
-            out += Requirement(Icons.Rounded.Notifications, "Notification access", "To show your phone's notifications on the desktop") {
+            out += Requirement(
+                Icons.Rounded.Notifications, "Notification access", "To show your phone's notifications on the desktop",
+                // Android blocks this for apps installed from a browser download.
+                hint = "Switch greyed out? Open App info, tap ⋮ and choose “Allow restricted settings”, then try again.",
+                hintAction = "App info" to {
+                    startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+                },
+            ) {
                 startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
             }
         }
@@ -385,7 +395,18 @@ class MainActivity : ComponentActivity() {
             for (r in missing) {
                 ListItem(
                     headlineContent = { Text(r.title) },
-                    supportingContent = { Text(r.why) },
+                    supportingContent = {
+                        Column {
+                            Text(r.why)
+                            r.hint?.let {
+                                Spacer(Modifier.height(4.dp))
+                                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            r.hintAction?.let { (label, action) ->
+                                TextButton(onClick = action, contentPadding = PaddingValues(0.dp)) { Text(label) }
+                            }
+                        }
+                    },
                     leadingContent = { Icon(r.icon, null, tint = MaterialTheme.colorScheme.primary) },
                     trailingContent = { TextButton(onClick = r.grant) { Text("Allow") } },
                     colors = ListItemDefaults.colors(containerColor = Color.Transparent),
