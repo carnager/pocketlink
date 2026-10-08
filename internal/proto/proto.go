@@ -21,6 +21,8 @@ const (
 	TypeFileDone     = "file.done"
 	TypeMediaState   = "media.state"
 	TypeMediaCmd     = "media.cmd"
+	TypeCallState    = "call.state"
+	TypeCallMute     = "call.mute"
 )
 
 // Envelope is a single protocol frame. A frame with an ID must be
@@ -55,6 +57,15 @@ type NotifRemoved struct {
 
 type ClipSet struct {
 	Text string `json:"text"`
+}
+
+// CallState reports a phone call. Event is "ringing" (incoming), "talking"
+// (answered, or an outgoing call) or "ended".
+type CallState struct {
+	Event  string `json:"event"`
+	Number string `json:"number,omitempty"`
+	Name   string `json:"name,omitempty"` // contact name, if known
+	Time   int64  `json:"time"`           // unix millis on the phone
 }
 
 // FileOffer tells the phone a file is ready at GET /files/out/{id}.
@@ -103,5 +114,5 @@ func Decode[T any](e Envelope) (T, error) {
 // Coalesces reports whether a newer pending frame of this type makes older
 // pending frames of the same type obsolete.
 func Coalesces(typ string) bool {
-	return typ == TypeClipSet || typ == TypeMediaState
+	return typ == TypeClipSet || typ == TypeMediaState || typ == TypeCallState
 }

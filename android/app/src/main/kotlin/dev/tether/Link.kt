@@ -389,6 +389,7 @@ class Link internal constructor(private val ctx: Context, val id: String, privat
             "clip.set" -> Clip.set(ctx, body.optString("text"))
             "file.offer" -> transfers.offered(body)
             "media.state" -> remote.update(body)
+            "call.mute" -> Calls.muteRinger(ctx)
             else -> Log.d(TAG, "ignoring $type")
         }
     }

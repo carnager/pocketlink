@@ -100,7 +100,8 @@ func runDaemon(args []string) error {
 	}
 
 	pairing := &pair.Pairing{}
-	hub = conn.NewHub(ctx, *name, store, pairing, filepath.Join(stateDir, "queue"), dispatch(sink, clipboard, outgoing, players))
+	var phoneCalls *calls // set below, before any connection is accepted
+	hub = conn.NewHub(ctx, *name, store, pairing, filepath.Join(stateDir, "queue"), dispatch(sink, clipboard, outgoing, players, &phoneCalls))
 	// A phone that just connected (or restarted) needs the current state,
 	// which may not have changed since it last got it.
 	hub.OnConnect = func(dev pair.Device) {
@@ -151,6 +152,7 @@ func runDaemon(args []string) error {
 		incoming.SetDestDir(c.Downloads)
 		watcher.enable(c.Clipboard)
 	}}
+	phoneCalls = newCalls(settings, players, sink, hub)
 
 	errc := make(chan error, 2)
 	go func() { errc <- srv.ServeTLS(ln, "", "") }()
@@ -205,7 +207,7 @@ func runDaemon(args []string) error {
 	return srv.Shutdown(shutdownCtx)
 }
 
-func dispatch(sink *notify.Sink, clipboard *clip.Clipboard, outgoing *xfer.Outgoing, players *media.Watcher) conn.Handler {
+func dispatch(sink *notify.Sink, clipboard *clip.Clipboard, outgoing *xfer.Outgoing, players *media.Watcher, phoneCalls **calls) conn.Handler {
 	return func(dev pair.Device, e proto.Envelope) error {
 		switch e.Type {
 		case proto.TypeNotifPosted:
@@ -232,6 +234,12 @@ func dispatch(sink *notify.Sink, clipboard *clip.Clipboard, outgoing *xfer.Outgo
 				return err
 			}
 			return outgoing.Done(dev.ID, d.ID)
+		case proto.TypeCallState:
+			ev, err := proto.Decode[proto.CallState](e)
+			if err != nil {
+				return err
+			}
+			return (*phoneCalls).handle(dev, ev)
 		case proto.TypeMediaCmd:
 			c, err := proto.Decode[media.Command](e)
 			if err != nil {

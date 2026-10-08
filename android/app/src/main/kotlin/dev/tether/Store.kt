@@ -163,8 +163,8 @@ class Outbox(file: File) : JsonList(file) {
         val type = f.getString("type")
         val key = f.optJSONObject("body")?.optString("key")
         when (type) {
-            // Only the newest clipboard matters.
-            "clip.set" -> items.removeAll { it.getString("type") == "clip.set" }
+            // Only the newest clipboard and call state matter.
+            "clip.set", "call.state" -> items.removeAll { it.getString("type") == type }
             // A newer version or removal supersedes a pending notification.
             "notif.posted", "notif.removed" -> items.removeAll {
                 it.getString("type") == "notif.posted" && it.optJSONObject("body")?.optString("key") == key

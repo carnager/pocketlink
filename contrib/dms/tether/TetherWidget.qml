@@ -12,7 +12,7 @@ PluginComponent {
 
     pluginId: "tether"
     popoutWidth: 400
-    popoutHeight: 600
+    popoutHeight: 680
 
     property bool pluginPopoutVisible: false
     property var status: null
@@ -650,6 +650,63 @@ PluginComponent {
                         checked: root.config ? root.config.clipboard : false
                         enabled: root.config !== null && !root.isOverridden("clipboard")
                         onToggled: checked => root.setConfig("clipboard", checked)
+                    }
+
+                    StyledText {
+                        width: parent.width
+                        text: "During phone calls"
+                        font.pixelSize: Theme.fontSizeMedium
+                        color: Theme.surfaceText
+                    }
+
+                    Row {
+                        width: parent.width
+                        spacing: Theme.spacingS
+
+                        Repeater {
+                            model: [
+                                { "value": "pause", "label": "Pause media" },
+                                { "value": "lower", "label": "Lower volume" },
+                                { "value": "none", "label": "Nothing" }
+                            ]
+
+                            delegate: Rectangle {
+                                required property var modelData
+                                readonly property bool selected: root.config !== null && root.config.call_action === modelData.value
+
+                                width: (parent.width - Theme.spacingS * 2) / 3
+                                height: 32
+                                radius: 10
+                                color: selected ? Theme.primary : (callOptionArea.containsMouse ? Theme.widgetBaseHoverColor : Theme.surfaceContainer)
+                                border.color: selected ? Theme.primary : Theme.outline
+                                border.width: 1
+                                opacity: root.config !== null ? 1 : 0.5
+
+                                StyledText {
+                                    anchors.centerIn: parent
+                                    text: modelData.label
+                                    font.pixelSize: Theme.fontSizeSmall
+                                    color: parent.selected ? Theme.primaryText : Theme.surfaceText
+                                }
+
+                                MouseArea {
+                                    id: callOptionArea
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    enabled: root.config !== null && !parent.selected
+                                    cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                                    onClicked: root.setConfig("call_action", modelData.value)
+                                }
+                            }
+                        }
+                    }
+
+                    StyledText {
+                        visible: root.config !== null && root.config.call_action === "lower"
+                        width: parent.width
+                        text: "Volume during calls: " + (root.config ? root.config.call_volume : 0) + "% (tether config call_volume N)"
+                        font.pixelSize: Theme.fontSizeSmall
+                        color: Theme.surfaceVariantText
                     }
 
                     StyledText {

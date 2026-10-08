@@ -44,6 +44,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.BatteryAlert
+import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.ContentPaste
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Folder
@@ -116,6 +117,13 @@ class MainActivity : ComponentActivity() {
 
     private val scan = registerForActivityResult(ScanContract()) { r -> r.contents?.let(::pair) }
     private val askNotify = registerForActivityResult(ActivityResultContracts.RequestPermission()) { tick++ }
+    private val askCalls = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
+        if (granted[Manifest.permission.READ_PHONE_STATE] != true) {
+            // After a "don't ask again", only the app settings can grant it.
+            startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+        }
+        tick++
+    }
     private val pickFolder = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { tree ->
         if (tree != null) {
             // Keep access across reboots.
@@ -403,6 +411,17 @@ class MainActivity : ComponentActivity() {
                     }
                 },
             ) { pickFolder.launch(tree) }
+            val callsOn = Calls.enabled(this@MainActivity)
+            SettingRow(
+                Icons.Rounded.Call, "Phone calls",
+                if (callsOn) "Shown on your computers, which pause or quieten media" else "Off. Tap to show calls on your computers",
+            ) {
+                if (callsOn) {
+                    startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+                } else {
+                    askCalls.launch(Calls.permissions)
+                }
+            }
             if (Build.VERSION.SDK_INT >= 33) {
                 SettingRow(Icons.Rounded.Tune, "Quick Settings tile", "Send the clipboard from anywhere", onClick = ::addTile)
             }

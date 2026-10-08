@@ -106,6 +106,28 @@ func (s *Sink) FileReceived(dev pair.Device, path string) error {
 	return err
 }
 
+// IncomingCall shows (or updates) a ringing call with a Mute action.
+func (s *Sink) IncomingCall(dev pair.Device, replaces uint32, caller string, onMute func()) (uint32, error) {
+	return s.show(dev.Name, replaces, "call-start", "Incoming call", caller,
+		[]string{"mute", "Mute ringer"},
+		func(action string) {
+			if action == "mute" {
+				onMute()
+			}
+		})
+}
+
+// MissedCall replaces the ringing notification with a missed-call one.
+func (s *Sink) MissedCall(dev pair.Device, replaces uint32, caller string) error {
+	_, err := s.show(dev.Name, replaces, "call-missed", "Missed call", caller, nil, nil)
+	return err
+}
+
+// Close removes a notification shown by this sink.
+func (s *Sink) Close(id uint32) error {
+	return s.obj.Call(busName+".CloseNotification", 0, id).Err
+}
+
 func (s *Sink) show(app string, replaces uint32, icon, title, body string, actions []string, onAction func(string)) (uint32, error) {
 	if actions == nil {
 		actions = []string{}

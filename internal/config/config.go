@@ -20,10 +20,15 @@ type Config struct {
 	Listen    string `json:"listen"`    // address phones connect to
 	Downloads string `json:"downloads"` // where received files are saved
 	Clipboard bool   `json:"clipboard"` // send desktop clipboard changes to phones
+
+	// During phone calls: "pause" media, "lower" the volume to CallVolume
+	// percent, or "none".
+	CallAction string `json:"call_action"`
+	CallVolume int    `json:"call_volume"`
 }
 
 // Keys lists the settable keys, in display order.
-var Keys = []string{"name", "listen", "downloads", "clipboard"}
+var Keys = []string{"name", "listen", "downloads", "clipboard", "call_action", "call_volume"}
 
 // NeedsRestart reports whether changing key only takes effect after the
 // daemon restarts.
@@ -37,7 +42,7 @@ func Defaults() Config {
 	if downloads == "" {
 		downloads = filepath.Join(xdg.Home, "Downloads")
 	}
-	return Config{Name: host, Listen: ":1764", Downloads: downloads, Clipboard: true}
+	return Config{Name: host, Listen: ":1764", Downloads: downloads, Clipboard: true, CallAction: "pause", CallVolume: 20}
 }
 
 // Load reads path, filling in defaults for anything missing.
@@ -98,6 +103,17 @@ func (c *Config) Set(key, value string) error {
 			return errors.New("clipboard must be true or false")
 		}
 		c.Clipboard = b
+	case "call_action":
+		if value != "pause" && value != "lower" && value != "none" {
+			return errors.New("call_action must be pause, lower or none")
+		}
+		c.CallAction = value
+	case "call_volume":
+		n, err := strconv.Atoi(value)
+		if err != nil || n < 0 || n > 100 {
+			return errors.New("call_volume must be a percentage from 0 to 100")
+		}
+		c.CallVolume = n
 	default:
 		return fmt.Errorf("unknown setting %q", key)
 	}
