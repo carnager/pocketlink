@@ -19,6 +19,7 @@ PluginComponent {
     property var config: null
     property var overridden: []
     property string statusError: ""
+    property string configError: ""
     property bool statusAttempted: false
     property bool statusStarted: false
 
@@ -223,13 +224,30 @@ PluginComponent {
 
         stdout: StdioCollector {
             onStreamFinished: {
+                if (text.trim().length === 0)
+                    return;
                 try {
                     const reply = JSON.parse(text);
                     root.config = reply.config;
                     root.overridden = reply.overridden || [];
+                    root.configError = "";
                 } catch (e) {
+                    root.configError = "Unexpected output from tether config";
                 }
             }
+        }
+
+        stderr: StdioCollector {
+            id: configStderr
+        }
+
+        onExited: exitCode => {
+            if (exitCode === 0)
+                return;
+            const err = configStderr.text.trim();
+            root.configError = err.indexOf("unknown command") >= 0
+                ? "The running daemon is older than this plugin. Restart it to change settings here."
+                : (err || "Could not read settings");
         }
     }
 
@@ -578,6 +596,15 @@ PluginComponent {
                         color: Theme.surfaceText
                     }
 
+                    StyledText {
+                        visible: root.configError.length > 0 && root.statusError.length === 0
+                        width: parent.width
+                        text: root.configError
+                        font.pixelSize: Theme.fontSizeSmall
+                        color: Theme.error
+                        wrapMode: Text.WordWrap
+                    }
+
                     Item {
                         width: parent.width
                         height: Math.max(folderText.implicitHeight, changeFolderButton.height)
@@ -599,7 +626,7 @@ PluginComponent {
 
                             StyledText {
                                 width: parent.width
-                                text: root.config ? root.config.downloads : "…"
+                                text: root.config ? root.config.downloads : "unavailable"
                                 font.pixelSize: Theme.fontSizeSmall
                                 color: Theme.surfaceVariantText
                                 elide: Text.ElideMiddle
