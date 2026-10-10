@@ -9,6 +9,11 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"fmt"
+	"image"
+	"image/draw"
+	_ "image/gif"  // decoders for toPNG
+	_ "image/jpeg" //
+	"image/png"
 	"io"
 	"log/slog"
 	"net/http"
@@ -19,6 +24,9 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	_ "golang.org/x/image/bmp"  // more decoders for toPNG
+	_ "golang.org/x/image/webp" //
 )
 
 const (
@@ -35,10 +43,44 @@ type Clipboard struct {
 	last [32]byte
 }
 
-// SetImage puts an image on the clipboard.
+// SetImage puts an image on the clipboard, as PNG when it can be converted:
+// many apps (Signal and other Chromium/Electron ones) only paste image/png.
 func (c *Clipboard) SetImage(mime string, data []byte) error {
+	if png, err := toPNG(mime, data); err == nil {
+		mime, data = "image/png", png
+	} else {
+		slog.Warn("keeping clipboard image as is", "type", mime, "err", err)
+	}
+	// Record what actually lands on the clipboard, so the watcher sees
+	// it as an echo and doesn't send it back.
 	c.Changed(string(data))
 	return wlCopy(mime, bytes.NewReader(data))
+}
+
+// toPNG converts an image to PNG; PNG input is returned unchanged.
+func toPNG(mime string, data []byte) ([]byte, error) {
+	if mime == "image/png" {
+		return data, nil
+	}
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	// The PNG encoder writes anything but these as 16 bits per channel
+	// (e.g. JPEG's YCbCr), doubling the size for nothing.
+	switch img.(type) {
+	case *image.RGBA, *image.NRGBA, *image.Gray, *image.Paletted:
+	default:
+		rgba := image.NewRGBA(img.Bounds())
+		draw.Draw(rgba, rgba.Bounds(), img, img.Bounds().Min, draw.Src)
+		img = rgba
+	}
+	var buf bytes.Buffer
+	enc := png.Encoder{CompressionLevel: png.BestSpeed}
+	if err := enc.Encode(&buf, img); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 // Set writes text to the clipboard.
