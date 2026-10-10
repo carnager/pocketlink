@@ -11,7 +11,7 @@
 //	/clip TEXT         set the desktop clipboard
 //	/send PATH         upload a file, resuming a previous partial upload
 //	/sendcut PATH N    upload only the first N bytes, to test resuming
-//	/call EVENT [NUMBER [NAME]]  report a phone call (ringing, talking, ended)
+//	/call EVENT [NUMBER [NAME]] [@PHOTO]  report a phone call (ringing, talking, ended)
 //
 // Files offered by the desktop are downloaded to DIR/downloads.
 package main
@@ -275,8 +275,17 @@ func (cl *client) handleLine(line string, n *int) (proto.Envelope, error) {
 		}
 		return proto.Envelope{}, cl.upload(path, limit)
 	case cmd == "/call":
+		ev := proto.CallState{Time: time.Now().UnixMilli()}
+		// A trailing @PATH attaches a contact photo.
+		if i := strings.LastIndex(arg, " @"); i >= 0 {
+			photo, err := os.ReadFile(arg[i+2:])
+			if err != nil {
+				return proto.Envelope{}, err
+			}
+			ev.Photo, arg = photo, arg[:i]
+		}
 		f := strings.SplitN(arg, " ", 3)
-		ev := proto.CallState{Event: f[0], Time: time.Now().UnixMilli()}
+		ev.Event = f[0]
 		if len(f) > 1 {
 			ev.Number = f[1]
 		}

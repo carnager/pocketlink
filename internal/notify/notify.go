@@ -3,6 +3,11 @@
 package notify
 
 import (
+	"bytes"
+	"image"
+	"image/draw"
+	_ "image/jpeg" // contact photos
+	_ "image/png"  //
 	"log/slog"
 	"os/exec"
 	"path/filepath"
@@ -115,8 +120,8 @@ func (s *Sink) FileReceived(dev pair.Device, path string, onCopy func() error) e
 }
 
 // IncomingCall shows (or updates) a ringing call with a Mute action.
-func (s *Sink) IncomingCall(dev pair.Device, replaces uint32, caller string, onMute func()) (uint32, error) {
-	return s.show(dev.Name, replaces, "call-start", "Incoming call", caller,
+func (s *Sink) IncomingCall(dev pair.Device, replaces uint32, caller string, photo []byte, onMute func()) (uint32, error) {
+	return s.showWith(dev.Name, replaces, "call-start", "Incoming call", caller, imageHints(photo),
 		[]string{"mute", "Mute ringer"},
 		func(action string) {
 			if action == "mute" {
@@ -126,9 +131,38 @@ func (s *Sink) IncomingCall(dev pair.Device, replaces uint32, caller string, onM
 }
 
 // MissedCall replaces the ringing notification with a missed-call one.
-func (s *Sink) MissedCall(dev pair.Device, replaces uint32, caller string) error {
-	_, err := s.show(dev.Name, replaces, "call-missed", "Missed call", caller, nil, nil)
+func (s *Sink) MissedCall(dev pair.Device, replaces uint32, caller string, photo []byte) error {
+	_, err := s.showWith(dev.Name, replaces, "call-missed", "Missed call", caller, imageHints(photo), nil, nil)
 	return err
+}
+
+// imageData is the freedesktop "image-data" hint, signature (iiibiiay).
+type imageData struct {
+	Width, Height, Rowstride int32
+	HasAlpha                 bool
+	BitsPerSample, Channels  int32
+	Data                     []byte
+}
+
+// imageHints turns an encoded image (e.g. a contact photo) into the
+// "image-data" hint, which notification daemons show instead of the icon.
+// Anything that doesn't decode just gets no image.
+func imageHints(encoded []byte) map[string]dbus.Variant {
+	if len(encoded) == 0 {
+		return nil
+	}
+	img, _, err := image.Decode(bytes.NewReader(encoded))
+	if err != nil {
+		slog.Warn("notification image", "err", err)
+		return nil
+	}
+	b := img.Bounds()
+	rgba := image.NewNRGBA(image.Rect(0, 0, b.Dx(), b.Dy()))
+	draw.Draw(rgba, rgba.Bounds(), img, b.Min, draw.Src)
+	return map[string]dbus.Variant{"image-data": dbus.MakeVariant(imageData{
+		Width: int32(b.Dx()), Height: int32(b.Dy()), Rowstride: int32(rgba.Stride),
+		HasAlpha: true, BitsPerSample: 8, Channels: 4, Data: rgba.Pix,
+	})}
 }
 
 // Close removes a notification shown by this sink.
@@ -137,13 +171,20 @@ func (s *Sink) Close(id uint32) error {
 }
 
 func (s *Sink) show(app string, replaces uint32, icon, title, body string, actions []string, onAction func(string)) (uint32, error) {
+	return s.showWith(app, replaces, icon, title, body, nil, actions, onAction)
+}
+
+func (s *Sink) showWith(app string, replaces uint32, icon, title, body string, hints map[string]dbus.Variant, actions []string, onAction func(string)) (uint32, error) {
 	if actions == nil {
 		actions = []string{}
+	}
+	if hints == nil {
+		hints = map[string]dbus.Variant{}
 	}
 	var id uint32
 	err := s.obj.Call(busName+".Notify", 0,
 		app, replaces, icon, title, escapeMarkup.Replace(body),
-		actions, map[string]dbus.Variant{}, int32(-1),
+		actions, hints, int32(-1),
 	).Store(&id)
 	if err != nil {
 		return 0, err

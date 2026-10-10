@@ -35,6 +35,7 @@ type calls struct {
 
 type call struct {
 	caller   string
+	photo    []byte
 	notif    uint32
 	answered bool
 	quiet    quieting
@@ -67,7 +68,7 @@ func (c *calls) handle(dev pair.Device, ev proto.CallState) error {
 			if cur.answered {
 				return c.sink.Close(cur.notif)
 			}
-			return c.sink.MissedCall(dev, cur.notif, cur.caller)
+			return c.sink.MissedCall(dev, cur.notif, cur.caller, cur.photo)
 		}
 		return nil
 	}
@@ -81,11 +82,14 @@ func (c *calls) handle(dev pair.Device, ev proto.CallState) error {
 		c.active[dev.ID] = cur
 	}
 	cur.caller = callerName(ev)
+	if len(ev.Photo) > 0 {
+		cur.photo = ev.Photo
+	}
 	cfg := c.settings.get().Config
 	switch ev.Event {
 	case "ringing":
 		c.switchTo(cur, cfg.RingAction, cfg.CallVolume)
-		id, err := c.sink.IncomingCall(dev, cur.notif, cur.caller, func() {
+		id, err := c.sink.IncomingCall(dev, cur.notif, cur.caller, cur.photo, func() {
 			if err := c.hub.Send(dev.ID, proto.TypeCallMute, struct{}{}); err != nil {
 				slog.Warn("muting ringer", "err", err)
 			}

@@ -6,12 +6,16 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.media.AudioManager
 import android.net.Uri
 import android.provider.ContactsContract
 import android.telecom.TelecomManager
 import android.telephony.TelephonyManager
+import android.util.Base64
 import android.util.Log
+import java.io.ByteArrayOutputStream
 import org.json.JSONObject
 
 /**
@@ -62,7 +66,10 @@ object Calls {
         val body = JSONObject().put("event", event).put("time", System.currentTimeMillis())
         number?.let { n ->
             body.put("number", n)
-            contactName(ctx, n)?.let { body.put("name", it) }
+            contact(ctx, n)?.let { (name, photo) ->
+                body.put("name", name)
+                photo?.let { body.put("photo", Base64.encodeToString(it, Base64.NO_WRAP)) }
+            }
         }
         val links = Links.get(ctx)
         links.start()
@@ -105,17 +112,32 @@ object Calls {
         }
     }
 
-    private fun contactName(ctx: Context, number: String): String? {
+    /** The contact's name and a small JPEG of their photo, if they have one. */
+    private fun contact(ctx: Context, number: String): Pair<String, ByteArray?>? {
         if (ctx.checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) return null
         val uri = Uri.withAppendedPath(ContactsContract.PhoneLookup.CONTENT_FILTER_URI, Uri.encode(number))
+        val projection = arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME, ContactsContract.PhoneLookup.PHOTO_URI)
         return try {
-            ctx.contentResolver.query(uri, arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME), null, null, null)?.use { c ->
-                if (c.moveToFirst()) c.getString(0) else null
+            ctx.contentResolver.query(uri, projection, null, null, null)?.use { c ->
+                if (!c.moveToFirst()) return null
+                c.getString(0) to c.getString(1)?.let { photo(ctx, Uri.parse(it)) }
             }
         } catch (e: Exception) {
             Log.w(TAG, "contact lookup failed", e)
             null
         }
+    }
+
+    /** Loads a contact photo, shrunk to fit a notification (at most 256 px). */
+    private fun photo(ctx: Context, uri: Uri): ByteArray? = try {
+        ctx.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }?.let { b ->
+            val scale = minOf(1f, 256f / maxOf(b.width, b.height))
+            val small = if (scale < 1f) Bitmap.createScaledBitmap(b, (b.width * scale).toInt(), (b.height * scale).toInt(), true) else b
+            ByteArrayOutputStream().also { small.compress(Bitmap.CompressFormat.JPEG, 85, it) }.toByteArray()
+        }
+    } catch (e: Exception) {
+        Log.w(TAG, "reading contact photo", e)
+        null
     }
 }
 

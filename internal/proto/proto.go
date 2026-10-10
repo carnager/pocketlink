@@ -65,8 +65,9 @@ type ClipSet struct {
 type CallState struct {
 	Event  string `json:"event"`
 	Number string `json:"number,omitempty"`
-	Name   string `json:"name,omitempty"` // contact name, if known
-	Time   int64  `json:"time"`           // unix millis on the phone
+	Name   string `json:"name,omitempty"`  // contact name, if known
+	Photo  []byte `json:"photo,omitempty"` // contact photo (JPEG/PNG, small), if any
+	Time   int64  `json:"time"`            // unix millis on the phone
 }
 
 // ClipImage tells the phone the desktop clipboard holds an image, to be
