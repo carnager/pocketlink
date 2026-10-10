@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/exec"
 	"slices"
@@ -151,6 +152,26 @@ func GetImage(mime string) ([]byte, error) {
 	cmd.Process.Kill()
 	cmd.Wait()
 	return data, err
+}
+
+// ImageFile returns the image type of the file at path, judged by its
+// content, or "" if it isn't an image the clipboard can take.
+func ImageFile(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil || fi.Size() > MaxImage {
+		return ""
+	}
+	head := make([]byte, 512)
+	n, _ := io.ReadFull(f, head)
+	if mime := http.DetectContentType(head[:n]); strings.HasPrefix(mime, "image/") {
+		return mime
+	}
+	return ""
 }
 
 // Images keeps the most recent desktop clipboard image for phones to fetch.

@@ -91,16 +91,24 @@ func (s *Sink) Removed(dev pair.Device, key string) error {
 	return s.obj.Call(busName+".CloseNotification", 0, id).Err
 }
 
-// FileReceived announces a saved file, with actions to open it or its folder.
-func (s *Sink) FileReceived(dev pair.Device, path string) error {
-	_, err := s.show("pocketlink", 0, "document-save", "File from "+dev.Name, filepath.Base(path),
-		[]string{"default", "Open", "folder", "Show in folder"},
+// FileReceived announces a saved file, with actions to open it or its
+// folder, plus "Copy to clipboard" when onCopy is given (for images).
+func (s *Sink) FileReceived(dev pair.Device, path string, onCopy func() error) error {
+	actions := []string{"default", "Open", "folder", "Show in folder"}
+	if onCopy != nil {
+		actions = append(actions, "copy", "Copy to clipboard")
+	}
+	_, err := s.show("pocketlink", 0, "document-save", "File from "+dev.Name, filepath.Base(path), actions,
 		func(action string) {
 			switch action {
 			case "default":
 				xdgOpen(path)
 			case "folder":
 				xdgOpen(filepath.Dir(path))
+			case "copy":
+				if err := onCopy(); err != nil {
+					slog.Warn("copying received file to the clipboard", "path", path, "err", err)
+				}
 			}
 		})
 	return err

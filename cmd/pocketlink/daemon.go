@@ -84,7 +84,19 @@ func runDaemon(args []string) error {
 	defer stop()
 
 	incoming := xfer.NewIncoming(filepath.Join(stateDir, "incoming"), cfg.Downloads, store, func(dev pair.Device, path string) {
-		if err := sink.FileReceived(dev, path); err != nil {
+		// Images, e.g. a screenshot shared from the phone, can go straight
+		// to the clipboard from the notification.
+		var onCopy func() error
+		if mime := clip.ImageFile(path); mime != "" {
+			onCopy = func() error {
+				data, err := os.ReadFile(path)
+				if err != nil {
+					return err
+				}
+				return clipboard.SetImage(mime, data)
+			}
+		}
+		if err := sink.FileReceived(dev, path, onCopy); err != nil {
 			slog.Warn("file notification", "err", err)
 		}
 	})
