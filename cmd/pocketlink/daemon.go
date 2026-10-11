@@ -24,6 +24,7 @@ import (
 	"github.com/carnager/pocketlink/internal/config"
 	"github.com/carnager/pocketlink/internal/conn"
 	"github.com/carnager/pocketlink/internal/control"
+	"github.com/carnager/pocketlink/internal/davfs"
 	"github.com/carnager/pocketlink/internal/media"
 	"github.com/carnager/pocketlink/internal/notify"
 	"github.com/carnager/pocketlink/internal/pair"
@@ -118,10 +119,14 @@ func runDaemon(args []string) error {
 
 	pairing := &pair.Pairing{}
 	var phoneCalls *calls // set below, before any connection is accepted
-	hub = conn.NewHub(ctx, *name, store, pairing, filepath.Join(stateDir, "queue"), dispatch(sink, clipboard, outgoing, players, &phoneCalls))
+	var files *davfs.Server
+	hub = conn.NewHub(ctx, *name, store, pairing, filepath.Join(stateDir, "queue"), dispatch(sink, clipboard, outgoing, players, &phoneCalls, &files))
+	files = davfs.New(hub, store)
 	// A phone that just connected (or restarted) needs the current state,
 	// which may not have changed since it last got it.
 	hub.OnConnect = func(dev pair.Device) {
+		// It may have missed telling us about changed files.
+		files.Reset(dev.ID)
 		if err := hub.Send(dev.ID, proto.TypeMediaState, players.State()); err != nil {
 			slog.Warn("sending media state", "err", err)
 		}
@@ -208,6 +213,22 @@ func runDaemon(args []string) error {
 	}}
 	phoneCalls = newCalls(settings, players, sink, hub)
 
+	// Browsing phones' files from file managers, over WebDAV on localhost.
+	var filesURL string
+	filesSrv := &http.Server{Handler: files, ReadHeaderTimeout: 10 * time.Second}
+	if cfg.Files != "off" {
+		if fln, err := davfs.Listen(cfg.Files); err != nil {
+			slog.Warn("phone file access disabled", "err", err)
+		} else {
+			filesURL = "http://" + fln.Addr().String() + "/"
+			go func() {
+				if err := filesSrv.Serve(fln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+					slog.Warn("phone file access stopped", "err", err)
+				}
+			}()
+		}
+	}
+
 	errc := make(chan error, 2)
 	go func() { errc <- srv.ServeTLS(ln, "", "") }()
 	go func() {
@@ -218,7 +239,13 @@ func runDaemon(args []string) error {
 				offer := pair.Offer{Addrs: localAddrs(host, port), FP: fp, Token: tok, Name: *name}
 				return pairReply{URI: offer.URI(), Expires: exp}, nil
 			case "status":
-				return statusReply{Name: *name, Fingerprint: fp, Listen: *listen, Devices: hub.Status()}, nil
+				devs := hub.Status()
+				if filesURL != "" {
+					for i := range devs {
+						devs[i].Files = strings.TrimSuffix(filesURL, "/") + files.Folder(devs[i].ID)
+					}
+				}
+				return statusReply{Name: *name, Fingerprint: fp, Listen: *listen, Files: filesURL, Devices: devs}, nil
 			case "unpair":
 				id, err := hub.Resolve(req.ID)
 				if err != nil {
@@ -264,10 +291,11 @@ func runDaemon(args []string) error {
 	}
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
+	filesSrv.Shutdown(shutdownCtx)
 	return srv.Shutdown(shutdownCtx)
 }
 
-func dispatch(sink *notify.Sink, clipboard *clip.Clipboard, outgoing *xfer.Outgoing, players *media.Watcher, phoneCalls **calls) conn.Handler {
+func dispatch(sink *notify.Sink, clipboard *clip.Clipboard, outgoing *xfer.Outgoing, players *media.Watcher, phoneCalls **calls, files **davfs.Server) conn.Handler {
 	return func(dev pair.Device, e proto.Envelope) error {
 		switch e.Type {
 		case proto.TypeNotifPosted:
@@ -300,6 +328,13 @@ func dispatch(sink *notify.Sink, clipboard *clip.Clipboard, outgoing *xfer.Outgo
 				return err
 			}
 			return (*phoneCalls).handle(dev, ev)
+		case proto.TypeFSChanged:
+			c, err := proto.Decode[proto.FSChanged](e)
+			if err != nil {
+				return err
+			}
+			(*files).Changed(dev.ID, c.Path)
+			return nil
 		case proto.TypeMediaCmd:
 			c, err := proto.Decode[media.Command](e)
 			if err != nil {

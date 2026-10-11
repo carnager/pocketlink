@@ -21,6 +21,10 @@ type Config struct {
 	Downloads string `json:"downloads"` // where received files are saved
 	Clipboard bool   `json:"clipboard"` // send desktop clipboard changes to phones
 
+	// Files is the loopback address of the WebDAV server for browsing
+	// phones' files, or "off".
+	Files string `json:"files"`
+
 	// What to do with desktop audio while the phone rings and during a call:
 	// "pause" media, "lower" the volume to CallVolume percent of what it
 	// was, or "none".
@@ -33,12 +37,12 @@ type Config struct {
 }
 
 // Keys lists the settable keys, in display order.
-var Keys = []string{"name", "listen", "downloads", "clipboard", "ring_action", "talk_action", "call_volume"}
+var Keys = []string{"name", "listen", "downloads", "clipboard", "files", "ring_action", "talk_action", "call_volume"}
 
 // NeedsRestart reports whether changing key only takes effect after the
 // daemon restarts.
 func NeedsRestart(key string) bool {
-	return key == "name" || key == "listen"
+	return key == "name" || key == "listen" || key == "files"
 }
 
 func Defaults() Config {
@@ -47,7 +51,7 @@ func Defaults() Config {
 	if downloads == "" {
 		downloads = filepath.Join(xdg.Home, "Downloads")
 	}
-	return Config{Name: host, Listen: ":1764", Downloads: downloads, Clipboard: true, RingAction: "lower", TalkAction: "pause", CallVolume: 40}
+	return Config{Name: host, Listen: ":1764", Downloads: downloads, Clipboard: true, Files: "127.0.0.1:1765", RingAction: "lower", TalkAction: "pause", CallVolume: 40}
 }
 
 // Load reads path, filling in defaults for anything missing.
@@ -119,6 +123,18 @@ func (c *Config) Set(key, value string) error {
 			return errors.New("clipboard must be true or false")
 		}
 		c.Clipboard = b
+	case "files":
+		if value != "off" {
+			host, _, err := net.SplitHostPort(value)
+			if err != nil {
+				return fmt.Errorf("files: %w", err)
+			}
+			// Anyone who can connect gets at the phones' files.
+			if ip := net.ParseIP(host); host != "localhost" && (ip == nil || !ip.IsLoopback()) {
+				return errors.New("files must be a loopback address such as 127.0.0.1:1765, or off")
+			}
+		}
+		c.Files = value
 	case "ring_action", "talk_action":
 		if value != "pause" && value != "lower" && value != "none" {
 			return fmt.Errorf("%s must be pause, lower or none", key)

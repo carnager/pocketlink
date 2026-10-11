@@ -37,13 +37,17 @@ commands:
                     send files to a phone (default: all paired phones)
   config [-json] [KEY VALUE]
                     show settings, or change one (name, listen, downloads,
-                    clipboard, ring_action, talk_action, call_volume)
+                    clipboard, files, ring_action, talk_action, call_volume)
+
+Phones' files: open webdav://127.0.0.1:1765/ in Dolphin, or
+dav://127.0.0.1:1765/ in Thunar or Nautilus (see the files setting).
 `
 
 type statusReply struct {
 	Name        string              `json:"name"`
 	Fingerprint string              `json:"fingerprint"`
 	Listen      string              `json:"listen"`
+	Files       string              `json:"files,omitempty"` // WebDAV URL for phones' files
 	Devices     []conn.DeviceStatus `json:"devices"`
 }
 
@@ -132,7 +136,11 @@ func runStatus(args []string) error {
 		return enc.Encode(r)
 	}
 
-	fmt.Printf("%s listening on %s (fingerprint %s)\n\n", r.Name, r.Listen, pair.ShortID(r.Fingerprint))
+	fmt.Printf("%s listening on %s (fingerprint %s)\n", r.Name, r.Listen, pair.ShortID(r.Fingerprint))
+	if host, ok := strings.CutPrefix(r.Files, "http://"); ok {
+		fmt.Printf("Phones' files: webdav://%s (Dolphin), dav://%s (Thunar, Nautilus)\n", host, host)
+	}
+	fmt.Println()
 	if len(r.Devices) == 0 {
 		fmt.Println("No paired devices. Run `pocketlink pair`.")
 		return nil

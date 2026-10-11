@@ -29,6 +29,12 @@ computers.
     `Range`, then a `file.done` frame. Offers expire after 7 days.
   - Received files go to `$XDG_DOWNLOAD_DIR`. The desktop notification has
     Open / Show in folder actions.
+- **Live requests** are the exception to queueing: a frame with a `req` ID is
+  answered by exactly one `reply` frame, and fails instead of waiting if the
+  phone isn't connected. The desktop uses them to browse and change the
+  phone's files (`fs.*`, see `internal/proto/fs.go`), with file data in binary
+  WebSocket frames, and serves them to file managers over WebDAV
+  (`internal/davfs`).
 
 ## Install
 
@@ -97,7 +103,24 @@ pocketlink config name laptop          # needs a daemon restart
 pocketlink config ring_action lower    # while the phone rings: pause | lower | none
 pocketlink config talk_action pause    # during a call: pause | lower | none
 pocketlink config call_volume 40       # "lower" turns the volume down to 40% of what it was
+pocketlink config files off            # needs a daemon restart; default 127.0.0.1:1765
 ```
+
+## Phone files in your file manager
+
+Turn on *File access* in the app's settings, then open
+`webdav://127.0.0.1:1765/` in Dolphin, or `dav://127.0.0.1:1765/` in Thunar
+or Nautilus (Thunar needs `gvfs`), and bookmark it. Each paired phone is a
+folder there. You can browse, open, copy, move, rename and delete files
+both ways. `pocketlink status` shows the address.
+
+The server only listens on localhost and only accepts your own user's
+programs (it checks who owns the connecting socket), so it needs no
+password. Opening a folder costs one round trip to the phone, and the
+phone reports changes to folders you've opened, so going back to one is
+instant. Over a slow link, keep previews of remote files off (or limited in
+size) in your file manager's preview settings; otherwise it downloads
+every image to make a thumbnail.
 
 ## Media remote and calls
 

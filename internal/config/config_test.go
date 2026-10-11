@@ -43,3 +43,17 @@ func TestSetActions(t *testing.T) {
 		t.Fatal("talk_action accepted an invalid value")
 	}
 }
+
+func TestSetFiles(t *testing.T) {
+	c := Defaults()
+	for _, ok := range []string{"off", "127.0.0.1:2000", "[::1]:1765", "localhost:1765"} {
+		if err := c.Set("files", ok); err != nil {
+			t.Errorf("files %q: %v", ok, err)
+		}
+	}
+	for _, bad := range []string{":1765", "0.0.0.0:1765", "192.168.1.2:1765", "nonsense"} {
+		if err := c.Set("files", bad); err == nil {
+			t.Errorf("files %q was accepted", bad)
+		}
+	}
+}
