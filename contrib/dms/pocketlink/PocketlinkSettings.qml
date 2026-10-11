@@ -37,4 +37,12 @@ PluginSettings {
         placeholder: "pocketlink"
         defaultValue: "pocketlink"
     }
+
+    StringSetting {
+        settingKey: "fileManager"
+        label: "File manager"
+        description: "Opens the phones' files: dolphin, thunar, nautilus, nemo or another command. Empty uses the first of these that is installed."
+        placeholder: "e.g. thunar (empty: automatic)"
+        defaultValue: ""
+    }
 }

@@ -35,6 +35,8 @@ PluginComponent {
 
     readonly property string configuredBinary: String(loadPluginValue("pocketlinkBinary", "pocketlink")).trim()
     readonly property string pocketlinkBinary: configuredBinary.length > 0 ? configuredBinary : "pocketlink"
+    readonly property string fileManager: String(loadPluginValue("fileManager", "")).trim()
+    readonly property string filesUrl: status && status.files ? status.files : ""
     readonly property var devices: status && status.devices ? status.devices : []
     readonly property int connectedCount: devices.filter(d => d.connected).length
     readonly property bool pairing: qrPath.length > 0
@@ -151,6 +153,29 @@ PluginComponent {
     function sendFileTo(device) {
         sendTarget = device;
         openFileBrowser(sendBrowserLoader);
+    }
+
+    // Opens a WebDAV URL from pocketlink status in a file manager. KDE's
+    // file managers call the scheme webdav://, GVFS-based ones dav://.
+    function openFiles(url) {
+        if (url.length === 0)
+            return;
+        filesRunner.command = ["sh", "-c", `
+            fm=$1
+            if [ -z "$fm" ]; then
+                for c in dolphin thunar nautilus nemo pcmanfm-qt pcmanfm; do
+                    command -v "$c" >/dev/null && { fm=$c; break; }
+                done
+            fi
+            [ -n "$fm" ] || { echo "No file manager found. Set one in the plugin settings." >&2; exit 1; }
+            case "$fm" in
+                *dolphin*|*konqueror*|*krusader*) url="webdav://\${2#http://}" ;;
+                *) url="dav://\${2#http://}" ;;
+            esac
+            command -v "\${fm%% *}" >/dev/null || { echo "$fm is not installed" >&2; exit 1; }
+            setsid -f $fm "$url" >/dev/null 2>&1 </dev/null
+        `, "sh", fileManager, url];
+        filesRunner.running = true;
     }
 
     function openFileBrowser(loader) {
@@ -303,6 +328,20 @@ PluginComponent {
             }
             root.refreshStatus();
             root.refreshConfig();
+        }
+    }
+
+    Process {
+        id: filesRunner
+        running: false
+
+        stderr: StdioCollector {
+            id: filesStderr
+        }
+
+        onExited: exitCode => {
+            if (exitCode !== 0)
+                ToastService.showError("Could not open the phone's files", filesStderr.text.trim());
         }
     }
 
@@ -505,7 +544,7 @@ PluginComponent {
                             Column {
                                 anchors.left: deviceIcon.right
                                 anchors.leftMargin: Theme.spacingM
-                                anchors.right: sendButton.left
+                                anchors.right: filesButton.visible ? filesButton.left : sendButton.left
                                 anchors.rightMargin: Theme.spacingS
                                 anchors.verticalCenter: parent.verticalCenter
                                 spacing: 2
@@ -525,6 +564,38 @@ PluginComponent {
                                     font.pixelSize: Theme.fontSizeSmall
                                     color: Theme.surfaceVariantText
                                     elide: Text.ElideRight
+                                }
+                            }
+
+                            Rectangle {
+                                id: filesButton
+
+                                visible: !!modelData.files
+                                anchors.right: sendButton.left
+                                anchors.rightMargin: Theme.spacingS
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: 30
+                                height: 30
+                                radius: 10
+                                color: filesArea.containsMouse && modelData.connected ? Theme.widgetBaseHoverColor : Theme.surfaceContainer
+                                border.color: Theme.outline
+                                border.width: 1
+                                opacity: modelData.connected ? 1 : 0.5
+
+                                DankIcon {
+                                    anchors.centerIn: parent
+                                    name: "folder_open"
+                                    size: 16
+                                    color: Theme.surfaceText
+                                }
+
+                                MouseArea {
+                                    id: filesArea
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    enabled: modelData.connected
+                                    cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                                    onClicked: root.openFiles(modelData.files)
                                 }
                             }
 
@@ -591,23 +662,35 @@ PluginComponent {
                     }
 
                     Row {
+                        id: actionRow
+                        readonly property int buttons: root.filesUrl.length > 0 ? 3 : 2
+
                         width: parent.width
                         spacing: Theme.spacingS
 
                         DankButton {
-                            width: (parent.width - Theme.spacingS) / 2
-                            text: root.pairing ? "Cancel pairing" : "Pair phone"
+                            width: (parent.width - Theme.spacingS * (actionRow.buttons - 1)) / actionRow.buttons
+                            text: root.pairing ? "Cancel" : "Pair phone"
                             iconName: root.pairing ? "close" : "qr_code_2"
                             enabled: root.statusError.length === 0
                             onClicked: root.pairing ? root.stopPairing() : root.startPairing()
                         }
 
                         DankButton {
-                            width: (parent.width - Theme.spacingS) / 2
+                            width: (parent.width - Theme.spacingS * (actionRow.buttons - 1)) / actionRow.buttons
                             text: root.devices.length > 1 ? "Send to all" : "Send file"
                             iconName: "upload_file"
                             enabled: root.devices.length > 0
                             onClicked: root.sendFileTo(null)
+                        }
+
+                        DankButton {
+                            visible: root.filesUrl.length > 0
+                            width: (parent.width - Theme.spacingS * (actionRow.buttons - 1)) / actionRow.buttons
+                            text: "Phone files"
+                            iconName: "folder_open"
+                            enabled: root.devices.length > 0
+                            onClicked: root.openFiles(root.filesUrl)
                         }
                     }
 

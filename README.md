@@ -138,8 +138,10 @@ ends. Volume changes use `wpctl` (PipeWire).
 ## DankMaterialShell plugin
 
 `contrib/dms/pocketlink` is a bar widget: connection state, pairing with an
-on-screen QR code, sending files, unpairing, and the download folder and
-clipboard settings.
+on-screen QR code, sending files, opening phones' files in a file manager,
+unpairing, and the download folder and clipboard settings. The file manager
+is the first of Dolphin, Thunar, Nautilus, Nemo and PCManFM that's
+installed, unless you pick one in the plugin settings.
 
 ```sh
 ln -s "$PWD/contrib/dms/pocketlink" ~/.config/DankMaterialShell/plugins/pocketlink
