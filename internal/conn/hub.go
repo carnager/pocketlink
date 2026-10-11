@@ -9,6 +9,7 @@ package conn
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -100,11 +101,12 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	c.SetReadLimit(1 << 20)
+	// Large enough for the listing of a huge directory.
+	c.SetReadLimit(16 << 20)
 
 	ctx, cancel := context.WithCancel(h.ctx)
 	defer cancel()
-	s := &session{dev: dev, c: c, q: q, addr: r.RemoteAddr, cancel: cancel}
+	s := &session{dev: dev, c: c, q: q, addr: r.RemoteAddr, cancel: cancel, done: make(chan struct{}), calls: map[string]chan reply{}}
 	h.attach(s)
 	if h.OnConnect != nil {
 		h.OnConnect(dev)
@@ -130,6 +132,47 @@ func (h *Hub) Send(id, typ string, body any) error {
 		return err
 	}
 	return q.Push(e)
+}
+
+// ErrOffline is returned by Call when the device isn't connected, or the
+// connection dropped before the reply arrived.
+var ErrOffline = errors.New("device not connected")
+
+// Reply is the answer to a Call.
+type Reply struct {
+	Body    json.RawMessage
+	Payload []byte
+}
+
+// Call sends a live request to a connected device and waits for the reply.
+// Unlike Send, nothing is queued: it fails with ErrOffline at once if the
+// device isn't connected, and with ctx's error if no reply arrives in time.
+// A reply that reports an error is returned as a *proto.Error. A non-nil
+// payload is sent along in a binary frame.
+func (h *Hub) Call(ctx context.Context, id, typ string, body any, payload []byte) (Reply, error) {
+	s := h.session(id)
+	if s == nil {
+		return Reply{}, ErrOffline
+	}
+	return s.call(ctx, typ, body, payload)
+}
+
+// Connected reports whether a device is connected right now.
+func (h *Hub) Connected(id string) bool {
+	return h.session(id) != nil
+}
+
+// Supports reports whether a device is connected and listed feature in its
+// hello.
+func (h *Hub) Supports(id, feature string) bool {
+	s := h.session(id)
+	return s != nil && s.supports(feature)
+}
+
+func (h *Hub) session(id string) *session {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.sessions[id]
 }
 
 // Broadcast queues a frame for every paired device.
@@ -193,6 +236,7 @@ type DeviceStatus struct {
 	Addr      string    `json:"addr,omitempty"`
 	Pending   int       `json:"pending"`
 	LastSeen  time.Time `json:"last_seen,omitzero"`
+	Files     string    `json:"files,omitempty"` // WebDAV URL of its files, filled in by the daemon
 }
 
 func (h *Hub) Status() []DeviceStatus {

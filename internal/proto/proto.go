@@ -5,7 +5,9 @@ package proto
 
 import (
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 )
 
@@ -24,23 +26,38 @@ const (
 	TypeMediaCmd     = "media.cmd"
 	TypeCallState    = "call.state"
 	TypeCallMute     = "call.mute"
+	TypeReply        = "reply"
 )
 
 // Envelope is a single protocol frame. A frame with an ID must be
 // acknowledged by the receiver with an ack frame whose Ref is that ID.
 // Senders retransmit unacknowledged frames after reconnecting, so receivers
 // must tolerate duplicates.
+//
+// A frame with Req set instead is a live request. It is never queued, acked
+// or retransmitted: the receiver answers with exactly one reply frame whose
+// Ref is the Req and which carries either a body or an Error. If the
+// connection drops first, the request is lost and the caller fails.
 type Envelope struct {
-	V    int             `json:"v"`
-	ID   string          `json:"id,omitempty"`
-	Type string          `json:"type"`
-	Ref  string          `json:"ref,omitempty"`
-	Body json.RawMessage `json:"body,omitempty"`
+	V     int             `json:"v"`
+	ID    string          `json:"id,omitempty"`
+	Req   string          `json:"req,omitempty"`
+	Type  string          `json:"type"`
+	Ref   string          `json:"ref,omitempty"`
+	Body  json.RawMessage `json:"body,omitempty"`
+	Error *Error          `json:"error,omitempty"`
 }
 
+// Features a peer lists in its hello.
+const (
+	FeatureFS      = "fs"       // answers fs.* requests
+	FeatureFSWatch = "fs.watch" // sends fs.changed for listed directories
+)
+
 type Hello struct {
-	Name     string `json:"name"`
-	Platform string `json:"platform,omitempty"`
+	Name     string   `json:"name"`
+	Platform string   `json:"platform,omitempty"`
+	Features []string `json:"features,omitempty"`
 }
 
 type NotifPosted struct {
@@ -112,6 +129,60 @@ func NewUnacked(typ string, body any) (Envelope, error) {
 
 func Ack(id string) Envelope {
 	return Envelope{V: Version, Type: TypeAck, Ref: id}
+}
+
+// NewRequest builds a live request frame.
+func NewRequest(typ string, body any) (Envelope, error) {
+	e, err := NewUnacked(typ, body)
+	e.Req = rand.Text()
+	return e, err
+}
+
+// Reply builds the successful answer to a request.
+func Reply(req string, body any) (Envelope, error) {
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return Envelope{}, err
+	}
+	return Envelope{V: Version, Type: TypeReply, Ref: req, Body: raw}, nil
+}
+
+// ErrorReply builds the failed answer to a request.
+func ErrorReply(req, code, msg string) Envelope {
+	return Envelope{V: Version, Type: TypeReply, Ref: req, Error: &Error{Code: code, Message: msg}}
+}
+
+// MaxPayload bounds the payload of one binary frame.
+const MaxPayload = 512 << 10
+
+// EncodeBinary builds a binary WebSocket message: a 4-byte big-endian
+// length of the JSON envelope, the envelope, then the raw payload. Frames
+// that carry bulk data (file contents) use this instead of a text message.
+func EncodeBinary(e Envelope, payload []byte) ([]byte, error) {
+	hdr, err := json.Marshal(e)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]byte, 4, 4+len(hdr)+len(payload))
+	binary.BigEndian.PutUint32(out, uint32(len(hdr)))
+	out = append(out, hdr...)
+	return append(out, payload...), nil
+}
+
+// DecodeBinary splits a binary WebSocket message into envelope and payload.
+func DecodeBinary(data []byte) (Envelope, []byte, error) {
+	var e Envelope
+	if len(data) < 4 {
+		return e, nil, errors.New("binary frame too short")
+	}
+	n := binary.BigEndian.Uint32(data)
+	if uint64(n) > uint64(len(data)-4) {
+		return e, nil, errors.New("binary frame header overruns message")
+	}
+	if err := json.Unmarshal(data[4:4+n], &e); err != nil {
+		return e, nil, err
+	}
+	return e, data[4+n:], nil
 }
 
 func Decode[T any](e Envelope) (T, error) {
