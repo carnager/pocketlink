@@ -101,6 +101,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.content.IntentCompat
 import com.journeyapps.barcodescanner.CaptureActivity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -132,7 +133,13 @@ class MainActivity : ComponentActivity() {
     private var unobserve: (() -> Unit)? = null
 
     private val scan = registerForActivityResult(ScanContract()) { r -> r.contents?.let(::pair) }
-    private val askNotify = registerForActivityResult(ActivityResultContracts.RequestPermission()) { tick++ }
+    private val askNotify = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        // After two refusals Android stops asking; only the settings can grant it then.
+        if (!granted) {
+            startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName))
+        }
+        tick++
+    }
     private val askStorage = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         // After a "don't ask again", only the app settings can grant it.
         if (!granted) startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
@@ -388,6 +395,17 @@ class MainActivity : ComponentActivity() {
         ) {
             out += Requirement(Icons.Rounded.NotificationsActive, "Show notifications", "For transfer progress and received files") {
                 askNotify.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+        // Unused apps lose their permissions and get paused after a few
+        // months, and pocketlink is rarely opened: it works in the background.
+        if (Build.VERSION.SDK_INT >= 30 && !packageManager.isAutoRevokeWhitelisted) {
+            out += Requirement(Icons.Rounded.Restore, "Keep running when unused", "Turn off “Pause app activity if unused”, so Android doesn't stop pocketlink when you don't open it for a while") {
+                try {
+                    startActivity(IntentCompat.createManageUnusedAppRestrictionsIntent(this, packageName))
+                } catch (_: Exception) {
+                    startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+                }
             }
         }
         if (!getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)) {

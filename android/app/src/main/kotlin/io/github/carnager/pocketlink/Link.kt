@@ -205,6 +205,7 @@ class Link internal constructor(private val ctx: Context, val id: String, privat
     val transfers = Transfers(ctx, this, dir, File(ctx.cacheDir, "servers/${id.take(16)}"))
     val remote = Remote(ctx, this)
     private val fsWatch = FsWatch { sendLive("fs.changed", it) }
+    private var askedFileAccess = false // on this connection
 
     private val exec = Executors.newSingleThreadScheduledExecutor { Thread(it, "pocketlink-link-${id.take(6)}") }
     private val outbox = Outbox(File(dir, "outbox.json"))
@@ -341,6 +342,7 @@ class Link internal constructor(private val ctx: Context, val id: String, privat
         links.prefs.updateServer(id) { it.copy(lastAddr = addr) }
         target = "https://$addr" to client
         sent.clear()
+        askedFileAccess = false
         val hello = JSONObject().put("name", Links.deviceName(ctx)).put("platform", "android")
             .put("features", JSONArray().put("fs").put("fs.watch"))
         socket.send(Proto.frame("hello", hello, acked = false).toString())
@@ -394,7 +396,7 @@ class Link internal constructor(private val ctx: Context, val id: String, privat
         if (req.isNotEmpty()) {
             val type = f.optString("type")
             if (type.startsWith("fs.")) {
-                PhoneFs.serve(ctx, socket, fsWatch, req, type, body, payload)
+                PhoneFs.serve(ctx, socket, fsWatch, ::fileAccessWanted, req, type, body, payload)
             } else {
                 val err = JSONObject().put("code", "unsupported").put("message", type)
                 socket.send(JSONObject().put("v", Proto.VERSION).put("type", "reply").put("ref", req).put("error", err).toString())
@@ -427,6 +429,14 @@ class Link internal constructor(private val ctx: Context, val id: String, privat
             "media.state" -> remote.update(body)
             "call.mute" -> Calls.muteRinger(ctx)
             else -> Log.d(TAG, "ignoring $type")
+        }
+    }
+
+    /** Asks the user once per connection to turn on file access. */
+    private fun fileAccessWanted() = run {
+        if (!askedFileAccess) {
+            askedFileAccess = true
+            Notifs.fileAccessWanted(ctx, name)
         }
     }
 

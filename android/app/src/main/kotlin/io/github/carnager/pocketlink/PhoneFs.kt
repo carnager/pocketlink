@@ -74,13 +74,20 @@ object PhoneFs {
 
     /**
      * Answers request [req] on [socket], off the caller's thread. Listed
-     * directories are added to [watch].
+     * directories are added to [watch]; [denied] runs when a request fails
+     * because file access is off.
      */
-    fun serve(ctx: Context, socket: WebSocket, watch: FsWatch, req: String, type: String, body: JSONObject, payload: ByteArray?) = pool.execute {
+    fun serve(
+        ctx: Context, socket: WebSocket, watch: FsWatch, denied: () -> Unit,
+        req: String, type: String, body: JSONObject, payload: ByteArray?,
+    ) = pool.execute {
         val reply = JSONObject().put("v", Proto.VERSION).put("type", "reply").put("ref", req)
         var data: ByteArray? = null
         try {
-            if (!hasAccess(ctx)) throw FsError("perm", "file access isn't allowed on the phone")
+            if (!hasAccess(ctx)) {
+                denied()
+                throw FsError("perm", "file access isn't allowed on the phone")
+            }
             val (b, d) = handle(ctx, type, body, payload ?: ByteArray(0))
             reply.put("body", b)
             data = d

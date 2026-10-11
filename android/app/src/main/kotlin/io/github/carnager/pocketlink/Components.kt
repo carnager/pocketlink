@@ -32,6 +32,7 @@ import android.content.BroadcastReceiver
 import android.content.ClipData
 import android.content.ClipDescription
 import android.content.ClipboardManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
@@ -43,6 +44,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.service.quicksettings.TileService
@@ -65,6 +67,29 @@ object Notifs {
     const val FILES = "files"
     const val MEDIA = "media"
     const val LINK_ID = 1
+
+    /**
+     * Tells the user that a computer tried to open the phone's files while
+     * file access is off, with a button to turn it on.
+     */
+    fun fileAccessWanted(ctx: Context, computer: String) {
+        val settings = if (Build.VERSION.SDK_INT >= 30) {
+            Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:${ctx.packageName}"))
+        } else {
+            Intent(ctx, MainActivity::class.java)
+        }.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val open = PendingIntent.getActivity(ctx, FILE_ACCESS_ID, settings, PendingIntent.FLAG_IMMUTABLE)
+        val n = Notification.Builder(ctx, FILES)
+            .setSmallIcon(R.drawable.ic_stat)
+            .setContentTitle("$computer wants to browse your files")
+            .setContentText("Tap to allow file access for pocketlink")
+            .setContentIntent(open)
+            .setAutoCancel(true)
+            .build()
+        ctx.getSystemService(NotificationManager::class.java).notify(FILE_ACCESS_ID, n)
+    }
+
+    private const val FILE_ACCESS_ID = 2
 
     fun setup(ctx: Context) {
         ctx.getSystemService(NotificationManager::class.java).createNotificationChannels(
@@ -259,6 +284,12 @@ class NotifListener : NotificationListenerService() {
     override fun onListenerConnected() {
         Links.get(this).start()
         LinkService.start(this)
+    }
+
+    // Android can unbind the listener (after a crash, or on some phones at
+    // random) and won't bind it again by itself until a reboot.
+    override fun onListenerDisconnected() {
+        requestRebind(ComponentName(this, NotifListener::class.java))
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
