@@ -13,7 +13,8 @@
 //	/sendcut PATH N    upload only the first N bytes, to test resuming
 //	/call EVENT [NUMBER [NAME]] [@PHOTO]  report a phone call (ringing, talking, ended)
 //
-// Files offered by the desktop are downloaded to DIR/downloads.
+// Files offered by the desktop are downloaded to DIR/downloads. With
+// -fs ROOT, the desktop can browse and change ROOT as the phone's storage.
 package main
 
 import (
@@ -40,6 +41,7 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/carnager/pocketlink/internal/pair"
+	"github.com/carnager/pocketlink/internal/phonefs"
 	"github.com/carnager/pocketlink/internal/proto"
 	"github.com/carnager/pocketlink/internal/xfer"
 )
@@ -55,13 +57,15 @@ type client struct {
 	name string
 	hc   *http.Client // pinned to the desktop's certificate
 	addr string       // address of the current connection
+	fs   *phonefs.Server
 }
 
 func main() {
 	dir := flag.String("dir", filepath.Join(xdg.ConfigHome, "pocketlink-sim"), "state directory")
 	name := flag.String("name", "pocketlink-sim", "device name")
+	fsRoot := flag.String("fs", "", "directory to serve as the phone's storage")
 	flag.Usage = func() {
-		fmt.Fprintln(os.Stderr, "usage: pocketlink-sim [-dir DIR] [-name NAME] pair URI | run")
+		fmt.Fprintln(os.Stderr, "usage: pocketlink-sim [-dir DIR] [-name NAME] [-fs ROOT] pair URI | run")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -74,7 +78,7 @@ func main() {
 	case "pair":
 		err = doPair(cert, *dir, *name, flag.Arg(1))
 	case "run":
-		err = doRun(cert, *dir, *name)
+		err = doRun(cert, *dir, *name, *fsRoot)
 	default:
 		flag.Usage()
 		os.Exit(2)
@@ -96,6 +100,9 @@ func pinnedClient(cert tls.Certificate, fp string) *http.Client {
 func dial(ctx context.Context, hc *http.Client, addr string, q url.Values) (*websocket.Conn, error) {
 	u := url.URL{Scheme: "wss", Host: addr, Path: "/ws", RawQuery: q.Encode()}
 	c, _, err := websocket.Dial(ctx, u.String(), &websocket.DialOptions{HTTPClient: hc})
+	if err == nil {
+		c.SetReadLimit(1 << 20) // fs.write frames carry up to proto.MaxPayload
+	}
 	return c, err
 }
 
@@ -130,7 +137,7 @@ func doPair(cert tls.Certificate, dir, name, uri string) error {
 	return errors.Join(errs...)
 }
 
-func doRun(cert tls.Certificate, dir, name string) error {
+func doRun(cert tls.Certificate, dir, name, fsRoot string) error {
 	data, err := os.ReadFile(filepath.Join(dir, "server.json"))
 	if err != nil {
 		return fmt.Errorf("not paired yet: %w", err)
@@ -140,6 +147,9 @@ func doRun(cert tls.Certificate, dir, name string) error {
 		return err
 	}
 	cl := &client{dir: dir, name: name, hc: pinnedClient(cert, srv.FP)}
+	if fsRoot != "" {
+		cl.fs = &phonefs.Server{Root: fsRoot}
+	}
 
 	// Unbuffered: while disconnected, stdin simply isn't read, so lines wait.
 	lines := make(chan string)
@@ -190,7 +200,11 @@ func (cl *client) session(c *websocket.Conn, lines <-chan string) error {
 	defer cancel()
 	defer c.CloseNow()
 
-	hello, _ := proto.NewUnacked(proto.TypeHello, proto.Hello{Name: cl.name, Platform: "sim"})
+	h := proto.Hello{Name: cl.name, Platform: "sim"}
+	if cl.fs != nil {
+		h.Features = []string{proto.FeatureFS}
+	}
+	hello, _ := proto.NewUnacked(proto.TypeHello, h)
 	if err := write(ctx, c, hello); err != nil {
 		return err
 	}
@@ -224,13 +238,23 @@ func (cl *client) session(c *websocket.Conn, lines <-chan string) error {
 
 func (cl *client) readLoop(ctx context.Context, c *websocket.Conn) error {
 	for {
-		_, data, err := c.Read(ctx)
+		typ, data, err := c.Read(ctx)
 		if err != nil {
 			return err
 		}
 		var e proto.Envelope
-		if err := json.Unmarshal(data, &e); err != nil {
+		var payload []byte
+		if typ == websocket.MessageBinary {
+			e, payload, err = proto.DecodeBinary(data)
+		} else {
+			err = json.Unmarshal(data, &e)
+		}
+		if err != nil {
 			log.Printf("malformed frame: %v", err)
+			continue
+		}
+		if e.Req != "" {
+			go cl.answer(ctx, c, e, payload)
 			continue
 		}
 		switch e.Type {
@@ -446,6 +470,36 @@ func (cl *client) download(ctx context.Context, off proto.FileOffer) error {
 	}
 	log.Printf("download %s: saved to %s", off.Name, dst)
 	return nil
+}
+
+// answer replies to a live request from the desktop.
+func (cl *client) answer(ctx context.Context, c *websocket.Conn, e proto.Envelope, payload []byte) {
+	var r proto.Envelope
+	var out []byte
+	if cl.fs != nil && strings.HasPrefix(e.Type, "fs.") {
+		r, out = cl.fs.Handle(e, payload)
+	} else {
+		r = proto.ErrorReply(e.Req, proto.ErrUnsupported, e.Type)
+	}
+	if r.Error != nil {
+		log.Printf("<- %s %s: %v", e.Type, e.Body, r.Error)
+	} else {
+		log.Printf("<- %s %s (%d bytes in, %d out)", e.Type, e.Body, len(payload), len(out))
+	}
+	var err error
+	if out != nil {
+		var data []byte
+		if data, err = proto.EncodeBinary(r, out); err == nil {
+			wctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			err = c.Write(wctx, websocket.MessageBinary, data)
+			cancel()
+		}
+	} else {
+		err = write(ctx, c, r)
+	}
+	if err != nil {
+		log.Printf("replying to %s: %v", e.Type, err)
+	}
 }
 
 func write(ctx context.Context, c *websocket.Conn, e proto.Envelope) error {
