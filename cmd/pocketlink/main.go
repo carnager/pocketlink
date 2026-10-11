@@ -20,6 +20,7 @@ import (
 	"github.com/carnager/pocketlink/internal/clip"
 	"github.com/carnager/pocketlink/internal/conn"
 	"github.com/carnager/pocketlink/internal/control"
+	"github.com/carnager/pocketlink/internal/notify"
 	"github.com/carnager/pocketlink/internal/pair"
 )
 
@@ -33,8 +34,9 @@ commands:
   unpair <device>   forget a device (ID prefix or name)
   clip [text]       send text, piped stdin, or else the desktop clipboard
                     to all phones' clipboards
-  send [-to DEV] FILE...
-                    send files to a phone (default: all paired phones)
+  send [-to DEV] [-notify] FILE...
+                    send files to a phone (default: all paired phones);
+                    -notify reports the result as a desktop notification
   config [-json] [KEY VALUE]
                     show settings, or change one (name, listen, downloads,
                     clipboard, files, ring_action, talk_action, call_volume)
@@ -201,9 +203,10 @@ func runUnpair(args []string) error {
 func runSend(args []string) error {
 	fs := flag.NewFlagSet("send", flag.ExitOnError)
 	to := fs.String("to", "", "device ID prefix or name")
+	notice := fs.Bool("notify", false, "report the result as a desktop notification (for file manager actions)")
 	fs.Parse(args)
 	if fs.NArg() == 0 {
-		return errors.New("usage: pocketlink send [-to DEVICE] FILE...")
+		return errors.New("usage: pocketlink send [-to DEVICE] [-notify] FILE...")
 	}
 	paths := make([]string, fs.NArg())
 	for i, p := range fs.Args() {
@@ -214,13 +217,47 @@ func runSend(args []string) error {
 		paths[i] = abs
 	}
 	var sent []string
-	if err := control.Call(control.Request{Cmd: "send", ID: *to, Paths: paths}, &sent); err != nil {
+	err := control.Call(control.Request{Cmd: "send", ID: *to, Paths: paths}, &sent)
+	if *notice {
+		notifySent(*to, sent, err)
+	}
+	if err != nil {
 		return err
 	}
 	for _, name := range sent {
 		fmt.Println("offered", name)
 	}
 	return nil
+}
+
+// notifySent reports a send as a desktop notification. Files are offered
+// even to a phone that's offline; it fetches them when it connects.
+func notifySent(to string, sent []string, err error) {
+	target := to
+	if target == "" {
+		var st statusReply
+		if control.Call(control.Request{Cmd: "status"}, &st) == nil && len(st.Devices) == 1 {
+			target = st.Devices[0].Name
+		} else {
+			target = "your phones"
+		}
+	}
+	files := strings.Join(sent, ", ")
+	if len(sent) > 3 {
+		files = fmt.Sprintf("%s and %d more", strings.Join(sent[:3], ", "), len(sent)-3)
+	}
+	var nerr error
+	switch {
+	case err != nil && len(sent) > 0:
+		nerr = notify.Notice("dialog-warning", "Sent only some files to "+target, files+"\n"+err.Error())
+	case err != nil:
+		nerr = notify.Notice("dialog-error", "Could not send to "+target, err.Error())
+	default:
+		nerr = notify.Notice("document-send", "Sending to "+target, files)
+	}
+	if nerr != nil {
+		fmt.Fprintln(os.Stderr, "pocketlink: notification:", nerr)
+	}
 }
 
 func stdinIsTerminal() bool {

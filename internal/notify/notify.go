@@ -61,6 +61,20 @@ func New() (*Sink, error) {
 	return s, nil
 }
 
+// Notice shows a one-off notification without actions, for commands that
+// have no other way to report back, such as a file manager's "Send to phone".
+func Notice(icon, title, body string) error {
+	conn, err := dbus.ConnectSessionBus()
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	return conn.Object(busName, objPath).Call(busName+".Notify", 0,
+		"pocketlink", uint32(0), icon, title, escapeMarkup.Replace(body),
+		[]string{}, map[string]dbus.Variant{}, int32(-1),
+	).Err
+}
+
 // Posted shows a notification, replacing the previous one with the same key
 // so updates (e.g. a growing message thread) don't stack up.
 func (s *Sink) Posted(dev pair.Device, n proto.NotifPosted) error {
