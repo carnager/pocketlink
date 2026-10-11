@@ -3,6 +3,8 @@ package phonefs
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"slices"
 	"sync"
 
@@ -26,12 +28,7 @@ func (l *Local) Call(ctx context.Context, dev, typ string, body any, payload []b
 	if l.Offline {
 		return conn.Reply{}, conn.ErrOffline
 	}
-	l.mu.Lock()
-	if l.calls == nil {
-		l.calls = map[string]int{}
-	}
-	l.calls[typ]++
-	l.mu.Unlock()
+	l.count(typ)
 
 	e, err := proto.NewRequest(typ, body)
 	if err != nil {
@@ -50,6 +47,82 @@ func (l *Local) Call(ctx context.Context, dev, typ string, body any, payload []b
 	return conn.Reply{Body: r.Body, Payload: out}, nil
 }
 
+// StreamIn runs the phone's side of a stream request in-process.
+func (l *Local) StreamIn(ctx context.Context, dev, typ string, body any) (io.ReadCloser, error) {
+	e, err := l.start(typ, body)
+	if err != nil {
+		return nil, err
+	}
+	pr, pw := io.Pipe()
+	started := make(chan struct{})
+	replied := make(chan proto.Envelope, 1)
+	go func() {
+		replied <- l.Server.ServeStream(e, func(r io.Reader, _ int64) error {
+			close(started)
+			_, err := io.Copy(pw, r)
+			pw.CloseWithError(err)
+			return err
+		}, nil)
+	}()
+	select {
+	case <-started:
+		return pr, nil
+	case r := <-replied:
+		if r.Error != nil {
+			return nil, r.Error
+		}
+		return nil, errors.New("stream ended before it started")
+	}
+}
+
+// StreamOut runs the phone's side of a stream request in-process.
+func (l *Local) StreamOut(ctx context.Context, dev, typ string, body any) (conn.Upload, error) {
+	e, err := l.start(typ, body)
+	if err != nil {
+		return nil, err
+	}
+	pr, pw := io.Pipe()
+	u := &localUpload{pw: pw, done: make(chan struct{})}
+	go func() {
+		u.reply = l.Server.ServeStream(e, nil, func() (io.ReadCloser, error) { return pr, nil })
+		pr.CloseWithError(errors.New("stream ended"))
+		close(u.done)
+	}()
+	return u, nil
+}
+
+func (l *Local) start(typ string, body any) (proto.Envelope, error) {
+	if l.Offline {
+		return proto.Envelope{}, conn.ErrOffline
+	}
+	l.count(typ)
+	e, err := proto.NewRequest(typ, body)
+	if err != nil {
+		return e, err
+	}
+	data, _ := json.Marshal(e)
+	var got proto.Envelope
+	return got, json.Unmarshal(data, &got)
+}
+
+type localUpload struct {
+	pw    *io.PipeWriter
+	done  chan struct{}
+	reply proto.Envelope
+}
+
+func (u *localUpload) Write(p []byte) (int, error) { return u.pw.Write(p) }
+func (u *localUpload) Abort(err error)             { u.pw.CloseWithError(err) }
+
+func (u *localUpload) Finish(ctx context.Context) (conn.Reply, error) {
+	u.pw.Close()
+	<-u.done
+	if u.reply.Error != nil {
+		return conn.Reply{}, u.reply.Error
+	}
+	return conn.Reply{Body: u.reply.Body}, nil
+}
+
 func (l *Local) Connected(string) bool { return !l.Offline }
 
 func (l *Local) Supports(_, feature string) bool {
@@ -60,6 +133,15 @@ func (l *Local) Supports(_, feature string) bool {
 		return feature == proto.FeatureFS
 	}
 	return slices.Contains(l.Features, feature)
+}
+
+func (l *Local) count(typ string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.calls == nil {
+		l.calls = map[string]int{}
+	}
+	l.calls[typ]++
 }
 
 // Calls returns how many requests of type typ were made, and resets the

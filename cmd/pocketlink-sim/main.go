@@ -202,7 +202,7 @@ func (cl *client) session(c *websocket.Conn, lines <-chan string) error {
 
 	h := proto.Hello{Name: cl.name, Platform: "sim"}
 	if cl.fs != nil {
-		h.Features = []string{proto.FeatureFS}
+		h.Features = []string{proto.FeatureFS, proto.FeatureFSStream}
 	}
 	hello, _ := proto.NewUnacked(proto.TypeHello, h)
 	if err := write(ctx, c, hello); err != nil {
@@ -476,7 +476,9 @@ func (cl *client) download(ctx context.Context, off proto.FileOffer) error {
 func (cl *client) answer(ctx context.Context, c *websocket.Conn, e proto.Envelope, payload []byte) {
 	var r proto.Envelope
 	var out []byte
-	if cl.fs != nil && strings.HasPrefix(e.Type, "fs.") {
+	if cl.fs != nil && (e.Type == proto.TypeFSReadStream || e.Type == proto.TypeFSWriteStream) {
+		r = cl.stream(e)
+	} else if cl.fs != nil && strings.HasPrefix(e.Type, "fs.") {
 		r, out = cl.fs.Handle(e, payload)
 	} else {
 		r = proto.ErrorReply(e.Req, proto.ErrUnsupported, e.Type)
@@ -500,6 +502,37 @@ func (cl *client) answer(ctx context.Context, c *websocket.Conn, e proto.Envelop
 	if err != nil {
 		log.Printf("replying to %s: %v", e.Type, err)
 	}
+}
+
+// stream moves a stream request's data over HTTPS.
+func (cl *client) stream(e proto.Envelope) proto.Envelope {
+	u := "https://" + cl.addr + proto.StreamPath + e.Req
+	return cl.fs.ServeStream(e, func(body io.Reader, n int64) error {
+		req, err := http.NewRequest(http.MethodPut, u, body)
+		if err != nil {
+			return err
+		}
+		req.ContentLength = n
+		resp, err := cl.hc.Do(req)
+		if err != nil {
+			return err
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusNoContent {
+			return fmt.Errorf("PUT: %s", resp.Status)
+		}
+		return nil
+	}, func() (io.ReadCloser, error) {
+		resp, err := cl.hc.Get(u)
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			return nil, fmt.Errorf("GET: %s", resp.Status)
+		}
+		return resp.Body, nil
+	})
 }
 
 func write(ctx context.Context, c *websocket.Conn, e proto.Envelope) error {

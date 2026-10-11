@@ -23,6 +23,12 @@ const (
 	TypeFSSetAttr = "fs.setattr" // FSSetAttr → FSEntry
 	TypeFSStatFS  = "fs.statfs"  // FSPath → FSSpace
 
+	// Streams (FeatureFSStream), for sequential bulk transfers. The data
+	// goes over its own HTTPS connection to /stream/{req} rather than in
+	// frames, like file transfers do.
+	TypeFSReadStream  = "fs.readstream"  // FSStream → phone PUTs the file from Offset to its end, then replies (empty body)
+	TypeFSWriteStream = "fs.writestream" // FSStream → phone GETs the data and writes it at Offset into an existing file, then replies FSEntry
+
 	// TypeFSChanged (FSChanged) is a plain unacked frame from the phone,
 	// not a request.
 	TypeFSChanged = "fs.changed"
@@ -67,6 +73,12 @@ type FSRead struct {
 // FSWrite writes the payload (≤ MaxPayload bytes) at Offset into an
 // existing file, extending it if needed. The reply is the file afterwards.
 type FSWrite struct {
+	Path   string `json:"path"`
+	Offset int64  `json:"offset"`
+}
+
+// FSStream names where a stream starts.
+type FSStream struct {
 	Path   string `json:"path"`
 	Offset int64  `json:"offset"`
 }

@@ -165,6 +165,17 @@ func (c *Cache) WriteAt(ctx context.Context, p string, data []byte, off int64) (
 	return e, err
 }
 
+// OpenWrite is Client.OpenWrite, recording the file when the stream ends.
+func (c *Cache) OpenWrite(ctx context.Context, p string, off int64) (*Writer, error) {
+	w, err := c.Client.OpenWrite(ctx, p, off)
+	if err != nil {
+		c.updated(p, proto.FSEntry{}, err)
+		return nil, err
+	}
+	w.onDone = func(e proto.FSEntry, err error) { c.updated(p, e, err) }
+	return w, nil
+}
+
 func (c *Cache) Create(ctx context.Context, p string, exclusive, truncate bool) (proto.FSEntry, error) {
 	e, err := c.Client.Create(ctx, p, exclusive, truncate)
 	c.updated(p, e, err)

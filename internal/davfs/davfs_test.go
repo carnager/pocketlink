@@ -28,10 +28,11 @@ type env struct {
 	phone *phonefs.Local
 }
 
-func newEnv(t *testing.T) *env {
+func newEnv(t *testing.T, features ...string) *env {
 	t.Helper()
 	root := t.TempDir()
-	phone := &phonefs.Local{Server: &phonefs.Server{Root: root}, Features: []string{proto.FeatureFS, proto.FeatureFSWatch}}
+	features = append([]string{proto.FeatureFS, proto.FeatureFSWatch}, features...)
+	phone := &phonefs.Local{Server: &phonefs.Server{Root: root}, Features: features}
 	srv := httptest.NewServer(New(phone, devList{{ID: "dev", Name: "My/Phone"}}))
 	t.Cleanup(srv.Close)
 	return &env{url: srv.URL + "/My_Phone", root: root, phone: phone}
@@ -116,7 +117,22 @@ func TestTopLevel(t *testing.T) {
 }
 
 func TestPutGetMove(t *testing.T) {
-	e := newEnv(t)
+	t.Run("chunks", func(t *testing.T) { testPutGetMove(t, newEnv(t)) })
+	t.Run("streams", func(t *testing.T) {
+		e := newEnv(t, proto.FeatureFSStream)
+		testPutGetMove(t, e)
+		// A big file goes in one stream each way.
+		if in, out := e.phone.Calls(proto.TypeFSWriteStream), e.phone.Calls(proto.TypeFSReadStream); in != 1 || out < 1 {
+			t.Errorf("%d write streams, %d read streams", in, out)
+		}
+		// Only the small overwrite goes as a plain write.
+		if n := e.phone.Calls(proto.TypeFSWrite); n != 1 {
+			t.Errorf("%d plain writes, want 1", n)
+		}
+	})
+}
+
+func testPutGetMove(t *testing.T, e *env) {
 	data := make([]byte, 5*proto.MaxPayload+777)
 	rand.Read(data)
 

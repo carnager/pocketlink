@@ -50,8 +50,9 @@ type Envelope struct {
 
 // Features a peer lists in its hello.
 const (
-	FeatureFS      = "fs"       // answers fs.* requests
-	FeatureFSWatch = "fs.watch" // sends fs.changed for listed directories
+	FeatureFS       = "fs"        // answers fs.* requests
+	FeatureFSWatch  = "fs.watch"  // sends fs.changed for listed directories
+	FeatureFSStream = "fs.stream" // answers fs.readstream and fs.writestream
 )
 
 type Hello struct {
@@ -151,6 +152,13 @@ func Reply(req string, body any) (Envelope, error) {
 func ErrorReply(req, code, msg string) Envelope {
 	return Envelope{V: Version, Type: TypeReply, Ref: req, Error: &Error{Code: code, Message: msg}}
 }
+
+// StreamPath is where the peer moves a request's bulk data over HTTPS, on
+// the same listener and with the same client certificate as /ws: PUT to
+// send it to the desktop, GET to receive it. The peer replies to the
+// request as usual once the stream is done, or instead of opening it if it
+// fails before.
+const StreamPath = "/stream/"
 
 // MaxPayload bounds the payload of one binary frame.
 const MaxPayload = 512 << 10

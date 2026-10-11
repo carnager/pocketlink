@@ -34,7 +34,12 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody
 import okhttp3.WebSocket
+import okio.BufferedSink
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
@@ -57,6 +62,8 @@ object PhoneFs {
     // Enough to overlap a few chunk requests without letting a burst of
     // them hog the phone.
     private val pool = Executors.newFixedThreadPool(4) { Thread(it, "pocketlink-fs") }
+    // Streams last as long as a transfer, so they don't take turns in the pool.
+    private val streams = Executors.newCachedThreadPool { Thread(it, "pocketlink-fs-stream") }
     private val scanner = Executors.newSingleThreadScheduledExecutor { Thread(it, "pocketlink-scan") }
     private val pendingScans = ConcurrentHashMap<String, ScheduledFuture<*>>()
 
@@ -65,6 +72,8 @@ object PhoneFs {
     private const val MAX_QUEUED = 8L * 1024 * 1024
 
     private class FsError(val code: String, message: String) : Exception(message)
+
+    private val STREAMS = setOf("fs.readstream", "fs.writestream")
 
     private val root: File by lazy { Environment.getExternalStorageDirectory().canonicalFile }
 
@@ -75,12 +84,13 @@ object PhoneFs {
     /**
      * Answers request [req] on [socket], off the caller's thread. Listed
      * directories are added to [watch]; [denied] runs when a request fails
-     * because file access is off.
+     * because file access is off. Streams move their data over HTTPS to
+     * [target], the computer's address and client, like file transfers.
      */
     fun serve(
-        ctx: Context, socket: WebSocket, watch: FsWatch, denied: () -> Unit,
+        ctx: Context, socket: WebSocket, watch: FsWatch, denied: () -> Unit, target: Pair<String, OkHttpClient>?,
         req: String, type: String, body: JSONObject, payload: ByteArray?,
-    ) = pool.execute {
+    ) = (if (type in STREAMS) streams else pool).execute {
         val reply = JSONObject().put("v", Proto.VERSION).put("type", "reply").put("ref", req)
         var data: ByteArray? = null
         try {
@@ -88,7 +98,11 @@ object PhoneFs {
                 denied()
                 throw FsError("perm", "file access isn't allowed on the phone")
             }
-            val (b, d) = handle(ctx, type, body, payload ?: ByteArray(0))
+            val (b, d) = if (type in STREAMS) {
+                stream(ctx, type, body, req, target ?: throw FsError("io", "not connected")) to null
+            } else {
+                handle(ctx, type, body, payload ?: ByteArray(0))
+            }
             reply.put("body", b)
             data = d
             if (type == "fs.list") watch.listed(resolve(body.getString("path")).toFile(), body.getString("path"))
@@ -212,6 +226,59 @@ object PhoneFs {
             }
         }
         throw FsError("unsupported", type)
+    }
+
+    /**
+     * fs.readstream: PUTs the file from the offset to its end. fs.writestream:
+     * GETs the data and writes it into the file from the offset on.
+     */
+    private fun stream(ctx: Context, type: String, b: JSONObject, req: String, target: Pair<String, OkHttpClient>): JSONObject {
+        val (base, client) = target
+        val url = "$base/stream/$req"
+        val p = resolve(b.getString("path"))
+        val off = b.getLong("offset")
+        if (off < 0) throw FsError("invalid", "bad offset")
+        if (Files.isDirectory(p)) throw FsError("isdir", "is a directory")
+
+        if (type == "fs.readstream") {
+            val n = maxOf(Files.size(p) - off, 0)
+            val data = object : RequestBody() {
+                override fun contentType() = "application/octet-stream".toMediaType()
+                override fun contentLength() = n
+                override fun writeTo(sink: BufferedSink) {
+                    FileChannel.open(p, StandardOpenOption.READ).use { ch ->
+                        var pos = off
+                        while (pos < off + n) {
+                            val t = ch.transferTo(pos, off + n - pos, sink)
+                            if (t <= 0) throw IOException("file shrank while sending it")
+                            pos += t
+                        }
+                    }
+                }
+            }
+            client.newCall(Request.Builder().url(url).put(data).build()).execute().use { r ->
+                if (r.code != 204) throw IOException("PUT: ${r.code}")
+            }
+            return JSONObject()
+        }
+
+        if (!Files.exists(p)) throw NoSuchFileException(b.getString("path"))
+        FileChannel.open(p, StandardOpenOption.WRITE).use { ch ->
+            client.newCall(Request.Builder().url(url).build()).execute().use { r ->
+                if (r.code != 200) throw IOException("GET: ${r.code}")
+                val src = r.body.source()
+                val buf = ByteBuffer.allocate(256 * 1024)
+                var pos = off
+                while (true) {
+                    buf.clear()
+                    if (src.read(buf) < 0) break
+                    buf.flip()
+                    while (buf.hasRemaining()) pos += ch.write(buf, pos)
+                }
+            }
+        }
+        changed(ctx, p)
+        return entry(p)
     }
 
     /**

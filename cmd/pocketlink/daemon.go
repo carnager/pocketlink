@@ -135,6 +135,8 @@ func runDaemon(args []string) error {
 
 	mux := http.NewServeMux()
 	mux.Handle("GET /ws", hub)
+	mux.HandleFunc("PUT "+proto.StreamPath+"{req}", hub.ServeStream)
+	mux.HandleFunc("GET "+proto.StreamPath+"{req}", hub.ServeStream)
 	mux.HandleFunc("PUT /files/in/{id}", incoming.ServePUT)
 	mux.HandleFunc("HEAD /files/in/{id}", incoming.ServeHEAD)
 	mux.Handle("GET /files/out/{id}", outgoing)

@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"net/http"
@@ -60,10 +61,14 @@ func newTestEnv(t *testing.T) *testEnv {
 	// httptest doesn't wait for hijacked (WebSocket) requests, which still
 	// write to dir as they finish.
 	var running sync.WaitGroup
+	mux := http.NewServeMux()
+	mux.Handle("GET /ws", hub)
+	mux.HandleFunc("PUT "+proto.StreamPath+"{req}", hub.ServeStream)
+	mux.HandleFunc("GET "+proto.StreamPath+"{req}", hub.ServeStream)
 	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		running.Add(1)
 		defer running.Done()
-		hub.ServeHTTP(w, r)
+		mux.ServeHTTP(w, r)
 	}))
 	srv.TLS = &tls.Config{Certificates: []tls.Certificate{desk}, ClientAuth: tls.RequireAnyClientCert, MinVersion: tls.VersionTLS13}
 	srv.StartTLS()
@@ -123,6 +128,14 @@ func (env *testEnv) connect(t *testing.T, features ...string) *fakePhone {
 			if err != nil || e.Req == "" || p.stall.Load() {
 				continue
 			}
+			if e.Type == proto.TypeFSReadStream || e.Type == proto.TypeFSWriteStream {
+				go func() {
+					r := env.serveStream(hc, srv, e)
+					msg, _ := json.Marshal(r)
+					c.Write(ctx, websocket.MessageText, msg)
+				}()
+				continue
+			}
 			go func() {
 				r, out := srv.Handle(e, payload)
 				if out != nil {
@@ -145,6 +158,94 @@ func (env *testEnv) connect(t *testing.T, features ...string) *fakePhone {
 		time.Sleep(5 * time.Millisecond)
 	}
 	return p
+}
+
+// serveStream moves a stream's data over HTTPS, like the app does.
+func (env *testEnv) serveStream(hc *http.Client, srv *Server, e proto.Envelope) proto.Envelope {
+	u := env.srv.URL + proto.StreamPath + e.Req
+	return srv.ServeStream(e, func(body io.Reader, n int64) error {
+		req, _ := http.NewRequest(http.MethodPut, u, body)
+		req.ContentLength = n
+		resp, err := hc.Do(req)
+		if err != nil {
+			return err
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusNoContent {
+			return fmt.Errorf("PUT: %s", resp.Status)
+		}
+		return nil
+	}, func() (io.ReadCloser, error) {
+		resp, err := hc.Get(u)
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			return nil, fmt.Errorf("GET: %s", resp.Status)
+		}
+		return resp.Body, nil
+	})
+}
+
+func TestStreams(t *testing.T) {
+	env := newTestEnv(t)
+	env.connect(t, proto.FeatureFS, proto.FeatureFSStream)
+	cl := New(env.hub, env.devID)
+	ctx := context.Background()
+
+	data := make([]byte, 5<<20+123)
+	rand.Read(data)
+	if _, err := cl.Create(ctx, "/big", false, false); err != nil {
+		t.Fatal(err)
+	}
+	w, err := cl.OpenWrite(ctx, "/big", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for off := 0; off < len(data); off += 100000 {
+		if _, err := w.Write(data[off:min(off+100000, len(data))]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ent, err := w.Close(ctx)
+	if err != nil || ent.Size != int64(len(data)) {
+		t.Fatalf("after write stream: %+v, %v", ent, err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(env.root, "big")); !bytes.Equal(got, data) {
+		t.Fatal("file on the phone differs")
+	}
+
+	r, err := cl.OpenRead(ctx, "/big", 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := io.ReadAll(r)
+	r.Close()
+	if err != nil || !bytes.Equal(got, data[1000:]) {
+		t.Fatalf("read stream: %d bytes, %v", len(got), err)
+	}
+
+	// Closing a read stream early is fine, and the connection stays usable.
+	r, err = cl.OpenRead(ctx, "/big", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	io.ReadFull(r, make([]byte, 1000))
+	r.Close()
+
+	if _, err := cl.OpenRead(ctx, "/missing", 0); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("read stream of a missing file: %v", err)
+	}
+	if w, err := cl.OpenWrite(ctx, "/missing", 0); err == nil {
+		w.Write([]byte("x"))
+		if _, err := w.Close(ctx); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("write stream to a missing file: %v", err)
+		}
+	}
+	if _, err := cl.Stat(ctx, "/big"); err != nil {
+		t.Fatalf("stat after streams: %v", err)
+	}
 }
 
 func TestFileOps(t *testing.T) {

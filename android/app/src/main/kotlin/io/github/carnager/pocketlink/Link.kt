@@ -344,7 +344,7 @@ class Link internal constructor(private val ctx: Context, val id: String, privat
         sent.clear()
         askedFileAccess = false
         val hello = JSONObject().put("name", Links.deviceName(ctx)).put("platform", "android")
-            .put("features", JSONArray().put("fs").put("fs.watch"))
+            .put("features", JSONArray().put("fs").put("fs.watch").put("fs.stream"))
         socket.send(Proto.frame("hello", hello, acked = false).toString())
         Log.i(TAG, "connected to $name at $addr")
         setStatus(Status.CONNECTED)
@@ -396,7 +396,7 @@ class Link internal constructor(private val ctx: Context, val id: String, privat
         if (req.isNotEmpty()) {
             val type = f.optString("type")
             if (type.startsWith("fs.")) {
-                PhoneFs.serve(ctx, socket, fsWatch, ::fileAccessWanted, req, type, body, payload)
+                PhoneFs.serve(ctx, socket, fsWatch, ::fileAccessWanted, target, req, type, body, payload)
             } else {
                 val err = JSONObject().put("code", "unsupported").put("message", type)
                 socket.send(JSONObject().put("v", Proto.VERSION).put("type", "reply").put("ref", req).put("error", err).toString())

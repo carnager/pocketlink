@@ -208,6 +208,12 @@ func (s *session) call(ctx context.Context, typ string, body any, payload []byte
 	if err != nil {
 		return Reply{}, err
 	}
+	return s.request(ctx, e, payload)
+}
+
+// request sends a request frame built by the caller and waits for its reply.
+func (s *session) request(ctx context.Context, e proto.Envelope, payload []byte) (Reply, error) {
+	var err error
 	ch := make(chan reply, 1)
 	s.mu.Lock()
 	s.calls[e.Req] = ch

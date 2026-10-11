@@ -48,6 +48,7 @@ type Hub struct {
 	queues   map[string]*Queue
 	sessions map[string]*session
 	seen     map[string]*seenSet
+	streams  map[string]*stream // by request ID
 }
 
 func NewHub(ctx context.Context, name string, store *pair.Store, pairing *pair.Pairing, queueDir string, h Handler) *Hub {
@@ -61,6 +62,7 @@ func NewHub(ctx context.Context, name string, store *pair.Store, pairing *pair.P
 		queues:   map[string]*Queue{},
 		sessions: map[string]*session{},
 		seen:     map[string]*seenSet{},
+		streams:  map[string]*stream{},
 	}
 }
 

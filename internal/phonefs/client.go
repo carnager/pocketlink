@@ -27,6 +27,8 @@ const parallel = 4
 // Caller sends live requests to devices; *conn.Hub implements it.
 type Caller interface {
 	Call(ctx context.Context, dev, typ string, body any, payload []byte) (conn.Reply, error)
+	StreamIn(ctx context.Context, dev, typ string, body any) (io.ReadCloser, error)
+	StreamOut(ctx context.Context, dev, typ string, body any) (conn.Upload, error)
 	Connected(dev string) bool
 	Supports(dev, feature string) bool
 }
@@ -197,6 +199,67 @@ func (cl *Client) StatFS(ctx context.Context, p string) (proto.FSSpace, error) {
 	var s proto.FSSpace
 	_, err := cl.call(ctx, proto.TypeFSStatFS, proto.FSPath{Path: Clean(p)}, nil, &s)
 	return s, err
+}
+
+// Streams reports whether the phone can stream files (OpenRead and
+// OpenWrite), which is much faster for sequential transfers than ReadAt and
+// WriteAt.
+func (cl *Client) Streams() bool {
+	return cl.c.Supports(cl.dev, proto.FeatureFSStream)
+}
+
+// OpenRead streams a file from off to its end over its own connection.
+// Close it when done; closing it early stops the stream.
+func (cl *Client) OpenRead(ctx context.Context, p string, off int64) (io.ReadCloser, error) {
+	if err := cl.Ready(); err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, DefaultTimeout) // to start
+	defer cancel()
+	return cl.c.StreamIn(ctx, cl.dev, proto.TypeFSReadStream, proto.FSStream{Path: Clean(p), Offset: off})
+}
+
+// OpenWrite streams data into an existing file from off on. Write to the
+// Writer, then Close it.
+func (cl *Client) OpenWrite(ctx context.Context, p string, off int64) (*Writer, error) {
+	if err := cl.Ready(); err != nil {
+		return nil, err
+	}
+	u, err := cl.c.StreamOut(ctx, cl.dev, proto.TypeFSWriteStream, proto.FSStream{Path: Clean(p), Offset: off})
+	if err != nil {
+		return nil, err
+	}
+	return &Writer{u: u}, nil
+}
+
+// Writer is a stream into a file on the phone.
+type Writer struct {
+	u      conn.Upload
+	onDone func(proto.FSEntry, error)
+}
+
+func (w *Writer) Write(p []byte) (int, error) { return w.u.Write(p) }
+
+// Abort ends the stream as failed; the file keeps what arrived.
+func (w *Writer) Abort(err error) {
+	w.u.Abort(err)
+}
+
+// Close ends the stream and returns the file afterwards.
+func (w *Writer) Close(ctx context.Context) (proto.FSEntry, error) {
+	ctx, cancel := context.WithTimeout(ctx, DefaultTimeout) // for the phone to finish
+	defer cancel()
+	var e proto.FSEntry
+	r, err := w.u.Finish(ctx)
+	if err == nil {
+		if jerr := json.Unmarshal(r.Body, &e); jerr != nil {
+			err = &proto.Error{Code: proto.ErrIO, Message: "bad reply to fs.writestream: " + jerr.Error()}
+		}
+	}
+	if w.onDone != nil {
+		w.onDone(e, err)
+	}
+	return e, err
 }
 
 type chunk struct{ off, n int }

@@ -273,3 +273,72 @@ func toError(err error) *proto.Error {
 	}
 	return &proto.Error{Code: code, Message: err.Error()}
 }
+
+// ServeStream answers fs.readstream and fs.writestream, moving the data
+// with send (to the desktop: the file from the offset, and its length) or
+// recv (from the desktop). It returns the reply to send afterwards.
+func (s *Server) ServeStream(e proto.Envelope, send func(io.Reader, int64) error, recv func() (io.ReadCloser, error)) proto.Envelope {
+	fail := func(err error) proto.Envelope {
+		var pe *proto.Error
+		if !errors.As(err, &pe) {
+			pe = toError(err)
+		}
+		return proto.ErrorReply(e.Req, pe.Code, pe.Message)
+	}
+	r, err := decode[proto.FSStream](e)
+	if err != nil {
+		return fail(err)
+	}
+	if r.Offset < 0 {
+		return fail(&proto.Error{Code: proto.ErrInvalid, Message: "bad offset"})
+	}
+	p := s.local(r.Path)
+
+	switch e.Type {
+	case proto.TypeFSReadStream:
+		f, err := os.Open(p)
+		if err != nil {
+			return fail(err)
+		}
+		defer f.Close()
+		fi, err := f.Stat()
+		if err != nil {
+			return fail(err)
+		}
+		if fi.IsDir() {
+			return fail(syscall.EISDIR)
+		}
+		n := max(fi.Size()-r.Offset, 0)
+		if err := send(io.NewSectionReader(f, r.Offset, n), n); err != nil {
+			return fail(err)
+		}
+		reply, _ := proto.Reply(e.Req, struct{}{})
+		return reply
+
+	case proto.TypeFSWriteStream:
+		f, err := os.OpenFile(p, os.O_WRONLY, 0)
+		if err != nil {
+			return fail(err)
+		}
+		body, err := recv()
+		if err != nil {
+			f.Close()
+			return fail(err)
+		}
+		_, err = io.Copy(io.NewOffsetWriter(f, r.Offset), body)
+		body.Close()
+		if cerr := f.Close(); err == nil {
+			err = cerr
+		}
+		if err != nil {
+			return fail(err)
+		}
+		ent, err := s.stat(r.Path)
+		if err != nil {
+			return fail(err)
+		}
+		reply, _ := proto.Reply(e.Req, ent)
+		return reply
+	}
+	return fail(&proto.Error{Code: proto.ErrUnsupported, Message: e.Type})
+}
