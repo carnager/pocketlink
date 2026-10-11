@@ -20,6 +20,8 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
+import okio.ByteString
+import org.json.JSONArray
 import org.json.JSONObject
 
 private const val TAG = "pocketlink"
@@ -202,6 +204,7 @@ class Link internal constructor(private val ctx: Context, val id: String, privat
     private val dir = File(ctx.filesDir, "servers/${id.take(16)}")
     val transfers = Transfers(ctx, this, dir, File(ctx.cacheDir, "servers/${id.take(16)}"))
     val remote = Remote(ctx, this)
+    private val fsWatch = FsWatch { sendLive("fs.changed", it) }
 
     private val exec = Executors.newSingleThreadScheduledExecutor { Thread(it, "pocketlink-link-${id.take(6)}") }
     private val outbox = Outbox(File(dir, "outbox.json"))
@@ -311,6 +314,12 @@ class Link internal constructor(private val ctx: Context, val id: String, privat
                 if (gen == generation) received(webSocket, text)
             }
 
+            override fun onMessage(webSocket: WebSocket, bytes: ByteString) = run {
+                if (gen != generation) return@run
+                val msg = Proto.parseBinary(bytes)
+                if (msg == null) Log.w(TAG, "malformed binary frame") else received(webSocket, msg.first, msg.second)
+            }
+
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
                 webSocket.close(1000, null)
             }
@@ -333,6 +342,7 @@ class Link internal constructor(private val ctx: Context, val id: String, privat
         target = "https://$addr" to client
         sent.clear()
         val hello = JSONObject().put("name", Links.deviceName(ctx)).put("platform", "android")
+            .put("features", JSONArray().put("fs").put("fs.watch"))
         socket.send(Proto.frame("hello", hello, acked = false).toString())
         Log.i(TAG, "connected to $name at $addr")
         setStatus(Status.CONNECTED)
@@ -347,6 +357,7 @@ class Link internal constructor(private val ctx: Context, val id: String, privat
             connected = false
             target = null
             remote.clear()
+            fsWatch.clear()
             setStatus(Status.OFFLINE)
             backoff = MIN_BACKOFF
             scheduleRetry()
@@ -372,8 +383,24 @@ class Link internal constructor(private val ctx: Context, val id: String, privat
             Log.w(TAG, "malformed frame", e)
             return
         }
+        received(socket, f, null)
+    }
+
+    private fun received(socket: WebSocket, f: JSONObject, payload: ByteArray?) {
         val frameId = f.optString("id")
         val body = f.optJSONObject("body") ?: JSONObject()
+        // A live request: answered once, never acked or deduplicated.
+        val req = f.optString("req")
+        if (req.isNotEmpty()) {
+            val type = f.optString("type")
+            if (type.startsWith("fs.")) {
+                PhoneFs.serve(ctx, socket, fsWatch, req, type, body, payload)
+            } else {
+                val err = JSONObject().put("code", "unsupported").put("message", type)
+                socket.send(JSONObject().put("v", Proto.VERSION).put("type", "reply").put("ref", req).put("error", err).toString())
+            }
+            return
+        }
         when (val type = f.optString("type")) {
             "ack" -> {
                 val ref = f.optString("ref")
@@ -421,6 +448,7 @@ class Link internal constructor(private val ctx: Context, val id: String, privat
         connecting = false
         target = null
         remote.clear()
+        fsWatch.clear()
         if (status != Status.REJECTED) setStatus(Status.OFFLINE)
     }
 

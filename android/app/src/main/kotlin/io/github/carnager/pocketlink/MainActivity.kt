@@ -57,6 +57,7 @@ import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.QrCodeScanner
 import androidx.compose.material.icons.rounded.Restore
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.SdStorage
 import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.AlertDialog
@@ -132,6 +133,11 @@ class MainActivity : ComponentActivity() {
 
     private val scan = registerForActivityResult(ScanContract()) { r -> r.contents?.let(::pair) }
     private val askNotify = registerForActivityResult(ActivityResultContracts.RequestPermission()) { tick++ }
+    private val askStorage = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        // After a "don't ask again", only the app settings can grant it.
+        if (!granted) startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+        tick++
+    }
     private val askCalls = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
         if (granted[Manifest.permission.READ_PHONE_STATE] != true) {
             // After a "don't ask again", only the app settings can grant it.
@@ -449,6 +455,19 @@ class MainActivity : ComponentActivity() {
                     }
                 },
             ) { pickFolder.launch(tree) }
+            val filesOn = PhoneFs.hasAccess(this@MainActivity)
+            SettingRow(
+                Icons.Rounded.SdStorage, "File access",
+                if (filesOn) "Your computers can browse and change your files" else "Off. Tap to let your computers browse your files",
+            ) {
+                when {
+                    Build.VERSION.SDK_INT >= 30 -> startActivity(
+                        Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:$packageName"))
+                    )
+                    filesOn -> startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+                    else -> askStorage.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                }
+            }
             val callsOn = Calls.enabled(this@MainActivity)
             SettingRow(
                 Icons.Rounded.Call, "Phone calls",

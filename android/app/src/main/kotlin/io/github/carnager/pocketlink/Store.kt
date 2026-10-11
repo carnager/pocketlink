@@ -3,8 +3,12 @@ package io.github.carnager.pocketlink
 import android.content.Context
 import android.net.Uri
 import java.io.File
+import java.nio.ByteBuffer
 import java.util.UUID
+import okio.ByteString
+import okio.ByteString.Companion.toByteString
 import org.json.JSONArray
+import org.json.JSONException
 import org.json.JSONObject
 
 /** Wire format helpers; see internal/proto in the Go code. */
@@ -17,6 +21,31 @@ object Proto {
         }
 
     fun ack(id: String): JSONObject = JSONObject().put("v", VERSION).put("type", "ack").put("ref", id)
+
+    /**
+     * A binary message, for frames that carry bulk data: the envelope's
+     * length (4 bytes, big-endian), the envelope as JSON, then the payload.
+     */
+    fun binary(frame: JSONObject, payload: ByteArray): ByteString {
+        val hdr = frame.toString().toByteArray()
+        val buf = ByteBuffer.allocate(4 + hdr.size + payload.size)
+        buf.putInt(hdr.size).put(hdr).put(payload)
+        return buf.array().toByteString()
+    }
+
+    /** Splits a binary message into envelope and payload, or null if it's malformed. */
+    fun parseBinary(msg: ByteString): Pair<JSONObject, ByteArray>? {
+        val data = msg.toByteArray()
+        if (data.size < 4) return null
+        val n = ByteBuffer.wrap(data).int
+        if (n < 0 || n > data.size - 4) return null
+        val frame = try {
+            JSONObject(String(data, 4, n))
+        } catch (_: JSONException) {
+            return null
+        }
+        return frame to data.copyOfRange(4 + n, data.size)
+    }
 }
 
 data class Server(val name: String, val fp: String, val addrs: List<String>, val lastAddr: String? = null) {
