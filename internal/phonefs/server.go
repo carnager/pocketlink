@@ -103,7 +103,11 @@ func (s *Server) handle(e proto.Envelope, payload []byte) (any, []byte, error) {
 		if r.Offset < 0 || len(payload) > proto.MaxPayload {
 			return nil, nil, &proto.Error{Code: proto.ErrInvalid, Message: "bad offset or length"}
 		}
-		f, err := os.OpenFile(s.local(r.Path), os.O_WRONLY, 0)
+		flags := os.O_WRONLY
+		if r.Create {
+			flags |= os.O_CREATE | os.O_TRUNC
+		}
+		f, err := os.OpenFile(s.local(r.Path), flags, 0o644)
 		if err != nil {
 			return nil, nil, err
 		}

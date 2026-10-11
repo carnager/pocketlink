@@ -36,6 +36,7 @@ type file struct {
 	name     string
 	e        proto.FSEntry
 	writable bool
+	pending  bool // to be created along with what's written to it
 	pos      int64
 
 	// Reading: the current window and, while streaming, the next one.
@@ -264,11 +265,26 @@ func (f *file) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
+// create creates a pending file, before data goes to it in pieces.
+func (f *file) create() error {
+	if !f.pending || f.werr != nil {
+		return f.werr
+	}
+	f.pending = false
+	e, err := f.c.Create(f.ctx, f.path, false, true)
+	if err != nil {
+		f.werr = err
+		return err
+	}
+	f.e = e
+	return nil
+}
+
 // startWriteStream opens a stream at the collected data and sends it there.
 func (f *file) startWriteStream() error {
 	f.wait()
-	if f.werr != nil {
-		return f.werr
+	if err := f.create(); err != nil {
+		return err
 	}
 	ws, err := f.c.OpenWrite(f.ctx, f.path, f.woff)
 	if err != nil {
@@ -316,7 +332,7 @@ func (f *file) send() {
 // chunk is done.
 func (f *file) sendN(n int) {
 	f.wait()
-	if n == 0 || f.werr != nil {
+	if n == 0 || f.create() != nil {
 		return
 	}
 	data, off := f.wbuf[:n:n], f.woff
@@ -350,8 +366,21 @@ func (f *file) flush() error {
 	if err := f.closeWriteStream(); err != nil {
 		return err
 	}
+	// A small new file goes with its contents in one request.
+	if f.pending && f.sending == nil && f.woff == 0 && len(f.wbuf) <= proto.MaxPayload {
+		f.pending = false
+		e, err := f.c.WriteFile(f.ctx, f.path, f.wbuf)
+		f.wbuf = nil
+		if err != nil {
+			f.werr = err
+			return err
+		}
+		f.e = e
+		return nil
+	}
 	f.send()
 	f.wait()
+	f.create() // if nothing went out to create it
 	return f.werr
 }
 

@@ -21,7 +21,7 @@ func newCacheEnv(t *testing.T) (*Cache, *Local, string) {
 			t.Fatal(err)
 		}
 	}
-	l := &Local{Server: &Server{Root: root}, Features: []string{proto.FeatureFS, proto.FeatureFSWatch}}
+	l := &Local{Server: &Server{Root: root}, Features: []string{proto.FeatureFS, proto.FeatureFSWatch, proto.FeatureFSWriteCreate}}
 	return NewCache(New(l, "dev")), l, root
 }
 
@@ -94,8 +94,36 @@ func TestCacheFollowsChanges(t *testing.T) {
 	if _, err := c.Stat(ctx, "/phone.txt"); err != nil {
 		t.Fatalf("after fs.changed: %v", err)
 	}
-	if n := l.Calls(proto.TypeFSList); n != 0 {
-		t.Errorf("%d list requests, want 0", n)
+	// The stat fetched the folder again, which then answers other stats.
+	if _, err := c.Stat(ctx, "/b.jpg"); err != nil {
+		t.Fatal(err)
+	}
+	if lists, stats := l.Calls(proto.TypeFSList), l.Calls(proto.TypeFSStat); lists != 1 || stats != 0 {
+		t.Errorf("%d list and %d stat requests, want 1 and 0", lists, stats)
+	}
+}
+
+// Checking one target after another in a folder costs one request.
+func TestCacheStatsNewNames(t *testing.T) {
+	c, l, _ := newCacheEnv(t)
+	ctx := context.Background()
+	for i := range 20 {
+		name := "/sub/new" + string(rune('a'+i))
+		if _, err := c.Stat(ctx, name); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("stat %s: %v", name, err)
+		}
+		if _, err := c.WriteFile(ctx, name, []byte("x")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := c.Stat(ctx, "/sub/newa"); err != nil {
+		t.Fatalf("stat of a written file: %v", err)
+	}
+	if lists, stats := l.Calls(proto.TypeFSList), l.Calls(proto.TypeFSStat); lists != 1 || stats != 0 {
+		t.Errorf("%d list and %d stat requests, want 1 and 0", lists, stats)
+	}
+	if _, err := c.Stat(ctx, "/nodir/x"); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("stat in a missing folder: %v", err)
 	}
 }
 

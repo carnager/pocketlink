@@ -202,7 +202,7 @@ func (cl *client) session(c *websocket.Conn, lines <-chan string) error {
 
 	h := proto.Hello{Name: cl.name, Platform: "sim"}
 	if cl.fs != nil {
-		h.Features = []string{proto.FeatureFS, proto.FeatureFSStream}
+		h.Features = []string{proto.FeatureFS, proto.FeatureFSStream, proto.FeatureFSWriteCreate}
 	}
 	hello, _ := proto.NewUnacked(proto.TypeHello, h)
 	if err := write(ctx, c, hello); err != nil {

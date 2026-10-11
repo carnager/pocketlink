@@ -344,7 +344,7 @@ class Link internal constructor(private val ctx: Context, val id: String, privat
         sent.clear()
         askedFileAccess = false
         val hello = JSONObject().put("name", Links.deviceName(ctx)).put("platform", "android")
-            .put("features", JSONArray().put("fs").put("fs.watch").put("fs.stream"))
+            .put("features", JSONArray().put("fs").put("fs.watch").put("fs.stream").put("fs.write.create"))
         socket.send(Proto.frame("hello", hello, acked = false).toString())
         Log.i(TAG, "connected to $name at $addr")
         setStatus(Status.CONNECTED)

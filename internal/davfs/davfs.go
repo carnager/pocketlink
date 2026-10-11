@@ -233,6 +233,21 @@ func (d davFS) OpenFile(ctx context.Context, name string, flag int, perm os.File
 			return nil, readOnly("open", name)
 		}
 		e = deviceDir(dev)
+	case flag&os.O_CREATE != 0 && flag&os.O_TRUNC != 0 && flag&os.O_EXCL == 0 && writable && c.CanWriteFile():
+		// A whole file being written (a PUT): it's created together with
+		// its contents, in a single request if it's small. Check what we
+		// can now; that's usually from the cache.
+		if parent, perr := c.Stat(ctx, path.Dir(p)); perr != nil {
+			return nil, osErr("open", name, perr)
+		} else if !parent.Dir {
+			return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
+		}
+		if cur, serr := c.Stat(ctx, p); serr == nil && cur.Dir {
+			return nil, &fs.PathError{Op: "open", Path: name, Err: errIsDir}
+		}
+		f := newFile(ctx, c, p, path.Base(path.Clean("/"+name)), proto.FSEntry{Name: path.Base(p)}, true)
+		f.pending = true
+		return f, nil
 	case flag&os.O_CREATE != 0:
 		e, err = c.Create(ctx, p, flag&os.O_EXCL != 0, flag&os.O_TRUNC != 0)
 	default:

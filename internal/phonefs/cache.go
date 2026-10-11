@@ -97,6 +97,28 @@ func (c *Cache) Stat(ctx context.Context, p string) (proto.FSEntry, error) {
 	gen := c.gen
 	c.mu.Unlock()
 
+	// Ask for the whole folder instead: clients stat one file after another
+	// in it (checking each target before a copy, say), and the listing
+	// answers all of them.
+	if p != "/" {
+		ents, err := c.List(ctx, path.Dir(p))
+		if err == nil {
+			for _, e := range ents {
+				if e.Name == path.Base(p) {
+					return e, nil
+				}
+			}
+			return proto.FSEntry{}, notFound(p)
+		}
+		if isNotFound(err) || isCode(err, proto.ErrNotDir) {
+			return proto.FSEntry{}, notFound(p)
+		}
+		if Offline(err) {
+			return proto.FSEntry{}, err
+		}
+		// Otherwise (not allowed to list it, say) try the file itself.
+	}
+
 	e, err := c.Client.Stat(ctx, p)
 	missing := isNotFound(err)
 	if err == nil || missing {
@@ -174,6 +196,13 @@ func (c *Cache) OpenWrite(ctx context.Context, p string, off int64) (*Writer, er
 	}
 	w.onDone = func(e proto.FSEntry, err error) { c.updated(p, e, err) }
 	return w, nil
+}
+
+// WriteFile is Client.WriteFile, recording the file.
+func (c *Cache) WriteFile(ctx context.Context, p string, data []byte) (proto.FSEntry, error) {
+	e, err := c.Client.WriteFile(ctx, p, data)
+	c.updated(p, e, err)
+	return e, err
 }
 
 func (c *Cache) Create(ctx context.Context, p string, exclusive, truncate bool) (proto.FSEntry, error) {
@@ -327,6 +356,10 @@ func values(m map[string]proto.FSEntry) []proto.FSEntry {
 }
 
 func isNotFound(err error) bool {
+	return isCode(err, proto.ErrNotFound)
+}
+
+func isCode(err error, code string) bool {
 	pe, ok := err.(*proto.Error)
-	return ok && pe.Code == proto.ErrNotFound
+	return ok && pe.Code == code
 }

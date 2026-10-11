@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -239,6 +240,7 @@ type DeviceStatus struct {
 	Pending   int       `json:"pending"`
 	LastSeen  time.Time `json:"last_seen,omitzero"`
 	Files     string    `json:"files,omitempty"` // WebDAV URL of its files, filled in by the daemon
+	Features  []string  `json:"features,omitempty"`
 }
 
 func (h *Hub) Status() []DeviceStatus {
@@ -249,6 +251,9 @@ func (h *Hub) Status() []DeviceStatus {
 		if s := h.sessions[d.ID]; s != nil {
 			st.Connected = true
 			st.Addr = s.addr
+			s.mu.Lock()
+			st.Features = slices.Clone(s.features)
+			s.mu.Unlock()
 		}
 		h.mu.Unlock()
 		if q, err := h.queue(d.ID); err == nil {

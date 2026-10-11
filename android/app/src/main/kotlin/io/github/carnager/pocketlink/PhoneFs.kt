@@ -8,6 +8,7 @@ import android.os.FileObserver
 import android.os.Build
 import android.os.Environment
 import android.os.StatFs
+import android.os.SystemClock
 import android.util.Log
 import java.io.File
 import java.io.IOException
@@ -65,7 +66,15 @@ object PhoneFs {
     // Streams last as long as a transfer, so they don't take turns in the pool.
     private val streams = Executors.newCachedThreadPool { Thread(it, "pocketlink-fs-stream") }
     private val scanner = Executors.newSingleThreadScheduledExecutor { Thread(it, "pocketlink-scan") }
-    private val pendingScans = ConcurrentHashMap<String, ScheduledFuture<*>>()
+    private val toScan = LinkedHashSet<String>() // guarded by itself
+    private var scanJob: ScheduledFuture<*>? = null
+
+    // Paths the computer changed just now, by when. Watches don't report
+    // these back: the computer knows, and telling it would only make it
+    // throw away a folder listing it just updated.
+    private val own = ConcurrentHashMap<String, Long>()
+    private const val OWN_MS = 5000L
+    private val CHANGES = setOf("fs.write", "fs.create", "fs.mkdir", "fs.remove", "fs.rename", "fs.setattr", "fs.writestream")
 
     // OkHttp closes a socket whose send queue passes 16 MiB; replies wait
     // for it to drain below this instead.
@@ -93,6 +102,9 @@ object PhoneFs {
     ) = (if (type in STREAMS) streams else pool).execute {
         val reply = JSONObject().put("v", Proto.VERSION).put("type", "reply").put("ref", req)
         var data: ByteArray? = null
+        if (type in CHANGES) for (k in listOf("path", "from", "to")) {
+            body.optString(k).takeIf { it.isNotEmpty() }?.let { runCatching { markOwn(resolve(it).toString()) } }
+        }
         try {
             if (!hasAccess(ctx)) {
                 denied()
@@ -159,7 +171,13 @@ object PhoneFs {
                 val off = b.getLong("offset")
                 if (off < 0 || payload.size > MAX_PAYLOAD) throw FsError("invalid", "bad offset or length")
                 if (Files.isDirectory(p)) throw FsError("isdir", "is a directory")
-                FileChannel.open(p, StandardOpenOption.WRITE).use { ch ->
+                // With "create", a whole small file in one request.
+                val opts = if (b.optBoolean("create")) {
+                    setOf(StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)
+                } else {
+                    setOf(StandardOpenOption.WRITE)
+                }
+                FileChannel.open(p, opts).use { ch ->
                     val buf = ByteBuffer.wrap(payload)
                     while (buf.hasRemaining()) ch.write(buf, off + buf.position())
                 }
@@ -326,11 +344,28 @@ object PhoneFs {
      */
     private fun changed(ctx: Context, p: Path) {
         val path = p.toString()
-        val next = scanner.schedule({
-            pendingScans.remove(path)
-            MediaScannerConnection.scanFile(ctx, arrayOf(path), null, null)
-        }, 2, TimeUnit.SECONDS)
-        pendingScans.put(path, next)?.cancel(false)
+        markOwn(path)
+        // One scan for a whole batch of files, once they've stopped coming.
+        synchronized(toScan) {
+            toScan += path
+            scanJob?.cancel(false)
+            scanJob = scanner.schedule({
+                val paths = synchronized(toScan) { toScan.toTypedArray().also { toScan.clear() } }
+                MediaScannerConnection.scanFile(ctx, paths, null, null)
+            }, 2, TimeUnit.SECONDS)
+        }
+    }
+
+    private fun markOwn(path: String) {
+        val now = SystemClock.elapsedRealtime()
+        own[path] = now
+        if (own.size > 1000) own.entries.removeIf { now - it.value > OWN_MS }
+    }
+
+    /** Whether the computer itself changed [path] just now. */
+    fun isOwn(path: String): Boolean {
+        val t = own[path] ?: return false
+        return SystemClock.elapsedRealtime() - t < OWN_MS
     }
 
     private fun describe(e: Exception): Pair<String, String> {
@@ -386,7 +421,9 @@ class FsWatch(private val send: (JSONObject) -> Unit) {
             watched.remove(oldest.key)
         }
         val observer = object : FileObserver(dir, MASK) {
-            override fun onEvent(event: Int, name: String?) = changed(path)
+            override fun onEvent(event: Int, name: String?) {
+                if (!PhoneFs.isOwn(if (name == null) dir.path else File(dir, name).path)) changed(path)
+            }
         }
         observer.startWatching()
         watched[path] = Watched(observer, now)

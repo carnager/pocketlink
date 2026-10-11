@@ -119,15 +119,15 @@ func TestTopLevel(t *testing.T) {
 func TestPutGetMove(t *testing.T) {
 	t.Run("chunks", func(t *testing.T) { testPutGetMove(t, newEnv(t)) })
 	t.Run("streams", func(t *testing.T) {
-		e := newEnv(t, proto.FeatureFSStream)
+		e := newEnv(t, proto.FeatureFSStream, proto.FeatureFSWriteCreate)
 		testPutGetMove(t, e)
 		// A big file goes in one stream each way.
 		if in, out := e.phone.Calls(proto.TypeFSWriteStream), e.phone.Calls(proto.TypeFSReadStream); in != 1 || out < 1 {
 			t.Errorf("%d write streams, %d read streams", in, out)
 		}
-		// Only the small overwrite goes as a plain write.
-		if n := e.phone.Calls(proto.TypeFSWrite); n != 1 {
-			t.Errorf("%d plain writes, want 1", n)
+		// Only the small overwrite goes as a plain write, which creates it.
+		if n, c := e.phone.Calls(proto.TypeFSWrite), e.phone.Calls(proto.TypeFSCreate); n != 1 || c != 1 {
+			t.Errorf("%d plain writes and %d creates, want 1 and 1 (for the big file's stream)", n, c)
 		}
 	})
 }
@@ -264,5 +264,47 @@ func TestFolder(t *testing.T) {
 	}
 	if got := s.Folder("b"); got != "/x_y/" {
 		t.Errorf("Folder(b) = %q", got)
+	}
+}
+
+// Uploading many small files into a folder costs one request per file,
+// plus one listing of the folder.
+func TestSmallUploads(t *testing.T) {
+	e := newEnv(t, proto.FeatureFSStream, proto.FeatureFSWriteCreate)
+	e.do(t, "MKCOL", "/up", nil)
+	e.phone.Calls(proto.TypeFSList)
+	e.phone.Calls(proto.TypeFSStat)
+	for i := range 30 {
+		name := fmt.Sprintf("/up/f%02d.txt", i)
+		// What clients do: check the target, then PUT.
+		if resp, _ := e.do(t, "PROPFIND", name, nil, "Depth", "0"); resp.StatusCode != http.StatusNotFound {
+			t.Fatalf("PROPFIND %s: %s", name, resp.Status)
+		}
+		if resp, _ := e.do(t, "PUT", name, strings.NewReader(name)); resp.StatusCode != http.StatusCreated {
+			t.Fatalf("PUT %s: %s", name, resp.Status)
+		}
+	}
+	if resp, _ := e.do(t, "PUT", "/up/empty", strings.NewReader("")); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("PUT of an empty file: %s", resp.Status)
+	}
+	got, _ := os.ReadFile(filepath.Join(e.root, "up/f07.txt"))
+	if string(got) != "/up/f07.txt" {
+		t.Fatalf("f07 holds %q", got)
+	}
+	if fi, err := os.Stat(filepath.Join(e.root, "up/empty")); err != nil || fi.Size() != 0 {
+		t.Fatalf("empty file: %v", err)
+	}
+	total := 0
+	for _, typ := range []string{proto.TypeFSList, proto.TypeFSStat, proto.TypeFSCreate, proto.TypeFSWrite} {
+		total += e.phone.Calls(typ)
+	}
+	if total > 31+2 {
+		t.Errorf("%d requests for 31 files", total)
+	}
+	if resp, _ := e.do(t, "PUT", "/nodir/x", strings.NewReader("x")); resp.StatusCode != http.StatusConflict {
+		t.Fatalf("PUT into a missing folder: %s", resp.Status)
+	}
+	if resp, _ := e.do(t, "PUT", "/up", strings.NewReader("x")); resp.StatusCode < 400 {
+		t.Fatalf("PUT over a folder: %s", resp.Status)
 	}
 }

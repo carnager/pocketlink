@@ -161,6 +161,25 @@ func (cl *Client) WriteAt(ctx context.Context, p string, data []byte, off int64)
 	return e, nil
 }
 
+// CanWriteFile reports whether WriteFile works with this phone.
+func (cl *Client) CanWriteFile() bool {
+	return cl.c.Supports(cl.dev, proto.FeatureFSWriteCreate)
+}
+
+// WriteFile creates or replaces a whole file of at most proto.MaxPayload
+// bytes with a single request. It needs CanWriteFile.
+func (cl *Client) WriteFile(ctx context.Context, p string, data []byte) (proto.FSEntry, error) {
+	if len(data) > proto.MaxPayload {
+		return proto.FSEntry{}, &proto.Error{Code: proto.ErrInvalid, Message: "too much data for one request"}
+	}
+	if data == nil {
+		data = []byte{} // an empty payload still goes as a binary frame
+	}
+	var e proto.FSEntry
+	_, err := cl.call(ctx, proto.TypeFSWrite, proto.FSWrite{Path: Clean(p), Create: true}, data, &e)
+	return e, err
+}
+
 func (cl *Client) Create(ctx context.Context, p string, exclusive, truncate bool) (proto.FSEntry, error) {
 	var e proto.FSEntry
 	_, err := cl.call(ctx, proto.TypeFSCreate, proto.FSCreate{Path: Clean(p), Exclusive: exclusive, Truncate: truncate}, nil, &e)

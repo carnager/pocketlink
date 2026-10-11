@@ -50,9 +50,10 @@ type Envelope struct {
 
 // Features a peer lists in its hello.
 const (
-	FeatureFS       = "fs"        // answers fs.* requests
-	FeatureFSWatch  = "fs.watch"  // sends fs.changed for listed directories
-	FeatureFSStream = "fs.stream" // answers fs.readstream and fs.writestream
+	FeatureFS            = "fs"              // answers fs.* requests
+	FeatureFSWatch       = "fs.watch"        // sends fs.changed for listed directories
+	FeatureFSStream      = "fs.stream"       // answers fs.readstream and fs.writestream
+	FeatureFSWriteCreate = "fs.write.create" // honours FSWrite.Create
 )
 
 type Hello struct {

@@ -72,9 +72,13 @@ type FSRead struct {
 
 // FSWrite writes the payload (≤ MaxPayload bytes) at Offset into an
 // existing file, extending it if needed. The reply is the file afterwards.
+//
+// With Create (FeatureFSWriteCreate), the file is created if it's missing
+// and emptied first, so a small file takes a single request.
 type FSWrite struct {
 	Path   string `json:"path"`
 	Offset int64  `json:"offset"`
+	Create bool   `json:"create,omitempty"`
 }
 
 // FSStream names where a stream starts.
