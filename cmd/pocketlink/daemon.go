@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -351,6 +352,8 @@ func dispatch(sink *notify.Sink, clipboard *clip.Clipboard, outgoing *xfer.Outgo
 }
 
 // sendFiles offers files to one device (req.ID) or all paired devices.
+// Several files or folders go as one tar offer to phones that unpack them,
+// which is much faster for many files; others get one offer per file.
 func sendFiles(hub *conn.Hub, store *pair.Store, outgoing *xfer.Outgoing, req control.Request) (any, error) {
 	var devs []string
 	if req.ID != "" {
@@ -371,19 +374,69 @@ func sendFiles(hub *conn.Hub, store *pair.Store, outgoing *xfer.Outgoing, req co
 		return nil, errors.New("no files given")
 	}
 
-	var sent []string
+	folders := false
 	for _, p := range req.Paths {
-		off, err := outgoing.Add(p, devs)
+		if fi, err := os.Stat(p); err != nil {
+			return nil, err
+		} else if fi.IsDir() {
+			folders = true
+		}
+	}
+	var tarDevs, plainDevs []string
+	for _, id := range devs {
+		d, _ := store.Get(id)
+		if (len(req.Paths) > 1 || folders) && slices.Contains(d.Features, proto.FeatureFilesTar) {
+			tarDevs = append(tarDevs, id)
+		} else {
+			plainDevs = append(plainDevs, id)
+		}
+	}
+
+	var sent []string
+	if len(tarDevs) > 0 {
+		name, entries, files, err := xfer.Collect(req.Paths)
+		if err != nil {
+			return nil, err
+		}
+		off, err := outgoing.AddTar(name, entries, files, tarDevs)
+		if err != nil {
+			return nil, err
+		}
+		body := proto.FileOffer{ID: off.ID, Name: off.Name, Size: off.Size, Mime: off.Mime, Files: off.Files}
+		for _, d := range tarDevs {
+			if err := hub.Send(d, proto.TypeFileOffer, body); err != nil {
+				return nil, err
+			}
+		}
+		label := fmt.Sprintf("%d files", files)
+		if files == 1 {
+			label = "1 file"
+		}
+		if name != "" {
+			label = name + " (" + label + ")"
+		}
+		sent = append(sent, label)
+	}
+	if len(plainDevs) == 0 {
+		return sent, nil
+	}
+	if folders {
+		return sent, errors.New("folders can't be sent to a phone whose app is older than 0.5; update it")
+	}
+	for _, p := range req.Paths {
+		off, err := outgoing.Add(p, plainDevs)
 		if err != nil {
 			return sent, err
 		}
 		body := proto.FileOffer{ID: off.ID, Name: off.Name, Size: off.Size, Mime: off.Mime}
-		for _, d := range devs {
+		for _, d := range plainDevs {
 			if err := hub.Send(d, proto.TypeFileOffer, body); err != nil {
 				return sent, err
 			}
 		}
-		sent = append(sent, off.Name)
+		if len(tarDevs) == 0 {
+			sent = append(sent, off.Name)
+		}
 	}
 	return sent, nil
 }

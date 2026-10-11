@@ -54,6 +54,7 @@ const (
 	FeatureFSWatch       = "fs.watch"        // sends fs.changed for listed directories
 	FeatureFSStream      = "fs.stream"       // answers fs.readstream and fs.writestream
 	FeatureFSWriteCreate = "fs.write.create" // honours FSWrite.Create
+	FeatureFilesTar      = "files.tar"       // accepts several files or folders as one tar offer
 )
 
 type Hello struct {
@@ -99,11 +100,18 @@ type ClipImage struct {
 }
 
 // FileOffer tells the phone a file is ready at GET /files/out/{id}.
+//
+// With Files set (FeatureFilesTar), it's a tar archive of that many files,
+// to be unpacked rather than saved: into a new folder called Name, or, if
+// Name is empty, straight into the destination. Entries are regular files
+// and directories with relative paths; the archive is the same on every
+// request, so Range requests resume it.
 type FileOffer struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	Size int64  `json:"size"`
-	Mime string `json:"mime"`
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Size  int64  `json:"size"`
+	Mime  string `json:"mime"`
+	Files int    `json:"files,omitempty"`
 }
 
 // FileDone tells the desktop the phone has finished with an offer, whether

@@ -136,6 +136,9 @@ func (s *session) readLoop(ctx context.Context, h *Hub) error {
 			s.mu.Lock()
 			s.features = hello.Features
 			s.mu.Unlock()
+			if err := h.store.SetFeatures(s.dev.ID, hello.Features); err != nil {
+				slog.Warn("saving device features", "err", err)
+			}
 			if hello.Name != "" && hello.Name != s.dev.Name {
 				if err := h.store.Rename(s.dev.ID, hello.Name); err != nil {
 					slog.Warn("renaming device", "err", err)

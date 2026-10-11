@@ -83,8 +83,14 @@ pocketlink pair           # show QR code
 pocketlink status         # paired devices, connection state, queued frames
 pocketlink unpair NAME
 wl-paste | pocketlink clip
-pocketlink send [-to NAME] FILE...
+pocketlink send [-to NAME] FILE|FOLDER...
 ```
+
+Several files, or folders, go as a single tar stream that the phone unpacks
+as it arrives, several files at a time: hundreds of small files take about a
+seventh of the time they would one by one. A folder lands as a folder of its
+name in Downloads (or the folder picked in the app). Interrupted transfers
+continue where they stopped, without duplicates.
 
 Desktop clipboard changes go to phones automatically (`-clipboard=false` turns
 that off), text and images (up to 20 MB, e.g. a `grim` screenshot) alike;
@@ -126,7 +132,7 @@ every image to make a thumbnail.
 
 The AUR package adds *Send to phone* to the right-click menu of Dolphin,
 Thunar (*Send To → Phone*), Nemo and Nautilus (Nautilus needs
-`nautilus-python`). It sends the selected files to all paired phones and
+`nautilus-python`). It sends the selected files and folders to all paired phones and
 reports the result as a desktop notification (`pocketlink send -notify`).
 Installing from source, copy them from `contrib/filemanager`:
 

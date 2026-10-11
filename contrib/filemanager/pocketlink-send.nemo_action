@@ -1,8 +1,8 @@
 [Nemo Action]
 Name=Send to phone
-Comment=Send the selected files to your phone with pocketlink
+Comment=Send the selected files and folders to your phone with pocketlink
 Exec=pocketlink send -notify %F
 Icon-Name=smartphone
 Selection=notnone
-Extensions=nodirs;
+Extensions=any;
 Dependencies=pocketlink;

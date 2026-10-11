@@ -9,7 +9,7 @@ class PocketlinkSend(GObject.GObject, Nautilus.MenuProvider):
     # Nautilus 43+ passes (files); older versions (window, files).
     def get_file_items(self, *args):
         files = args[-1]
-        if not files or any(f.is_directory() or f.get_uri_scheme() != "file" for f in files):
+        if not files or any(f.get_uri_scheme() != "file" for f in files):
             return []
         item = Nautilus.MenuItem(name="Pocketlink::send", label="Send to phone", icon="smartphone")
         item.connect("activate", self._send, files)

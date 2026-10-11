@@ -34,9 +34,9 @@ commands:
   unpair <device>   forget a device (ID prefix or name)
   clip [text]       send text, piped stdin, or else the desktop clipboard
                     to all phones' clipboards
-  send [-to DEV] [-notify] FILE...
-                    send files to a phone (default: all paired phones);
-                    -notify reports the result as a desktop notification
+  send [-to DEV] [-notify] FILE|FOLDER...
+                    send files and folders to a phone (default: all paired
+                    phones); -notify reports the result as a notification
   config [-json] [KEY VALUE]
                     show settings, or change one (name, listen, downloads,
                     clipboard, files, ring_action, talk_action, call_volume)
@@ -206,7 +206,7 @@ func runSend(args []string) error {
 	notice := fs.Bool("notify", false, "report the result as a desktop notification (for file manager actions)")
 	fs.Parse(args)
 	if fs.NArg() == 0 {
-		return errors.New("usage: pocketlink send [-to DEVICE] [-notify] FILE...")
+		return errors.New("usage: pocketlink send [-to DEVICE] [-notify] FILE|FOLDER...")
 	}
 	paths := make([]string, fs.NArg())
 	for i, p := range fs.Args() {

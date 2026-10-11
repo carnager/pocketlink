@@ -2,7 +2,8 @@
 Type=Application
 Version=1.0
 Name=Phone (pocketlink)
-Comment=Send files to your phone
+Comment=Send files and folders to your phone
 Icon=smartphone
 Exec=pocketlink send -notify %F
 NoDisplay=true
+MimeType=inode/directory;application/octet-stream;

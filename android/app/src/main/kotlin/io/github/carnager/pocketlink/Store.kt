@@ -240,4 +240,7 @@ class TransferList(file: File) : JsonList(file) {
     }
 
     fun contains(id: String) = items.any { it.getString("id") == id }
+
+    /** Writes the list after a record in it was changed in place. */
+    fun persist() = save()
 }

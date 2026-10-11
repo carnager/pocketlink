@@ -18,6 +18,9 @@ type Device struct {
 	Name     string    `json:"name"`
 	PairedAt time.Time `json:"paired_at"`
 	LastSeen time.Time `json:"last_seen,omitzero"`
+	// Features the device listed in its last hello, so they're known while
+	// it's offline too.
+	Features []string `json:"features,omitempty"`
 }
 
 // Store is the set of trusted devices, persisted as JSON.
@@ -82,6 +85,18 @@ func (s *Store) Remove(id string) error {
 
 func (s *Store) Rename(id, name string) error {
 	return s.update(id, func(d *Device) { d.Name = name })
+}
+
+// SetFeatures records what a device said it supports, if that changed.
+func (s *Store) SetFeatures(id string, features []string) error {
+	s.mu.Lock()
+	d, ok := s.devices[id]
+	same := ok && slices.Equal(d.Features, features)
+	s.mu.Unlock()
+	if !ok || same {
+		return nil
+	}
+	return s.update(id, func(d *Device) { d.Features = slices.Clone(features) })
 }
 
 func (s *Store) Touch(id string) error {

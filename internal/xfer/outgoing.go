@@ -29,6 +29,10 @@ type Offer struct {
 	ModTime time.Time `json:"mod_time"`
 	Devices []string  `json:"devices"` // devices that haven't sent file.done yet
 	Created time.Time `json:"created"`
+
+	// A tar offer of several files or folders instead of the one at Path.
+	Entries []Entry `json:"entries,omitempty"`
+	Files   int     `json:"files,omitempty"`
 }
 
 // Outgoing is the persisted registry of offers, and serves them at
@@ -81,6 +85,31 @@ func (o *Outgoing) Add(path string, devices []string) (Offer, error) {
 		ModTime: fi.ModTime(),
 		Devices: slices.Clone(devices),
 		Created: time.Now(),
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.offers[off.ID] = off
+	return *off, o.saveLocked()
+}
+
+// AddTar offers entries (see Collect) as one tar archive.
+func (o *Outgoing) AddTar(name string, entries []Entry, files int, devices []string) (Offer, error) {
+	if files == 0 {
+		return Offer{}, errors.New("no files to send")
+	}
+	tb, err := newTarball(entries)
+	if err != nil {
+		return Offer{}, err
+	}
+	off := &Offer{
+		ID:      rand.Text(),
+		Name:    name,
+		Size:    tb.size,
+		Mime:    "application/x-tar",
+		Devices: slices.Clone(devices),
+		Created: time.Now(),
+		Entries: entries,
+		Files:   files,
 	}
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -145,6 +174,10 @@ func (o *Outgoing) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if len(off.Entries) > 0 {
+		o.serveTar(w, r, off)
+		return
+	}
 	f, err := os.Open(off.Path)
 	if err != nil {
 		http.Error(w, "file no longer available", http.StatusGone)
@@ -160,6 +193,22 @@ func (o *Outgoing) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": off.Name}))
 	// ServeContent handles Range and If-Range, which is all resuming needs.
 	http.ServeContent(w, r, off.Name, fi.ModTime(), f)
+}
+
+func (o *Outgoing) serveTar(w http.ResponseWriter, r *http.Request, off Offer) {
+	tb, err := newTarball(off.Entries)
+	if err == nil {
+		err = tb.check()
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusGone)
+		return
+	}
+	tr := tb.open()
+	defer tr.Close()
+	w.Header().Set("Content-Type", off.Mime)
+	// The archive's identity is the offer, not a file's modification time.
+	http.ServeContent(w, r, off.ID+".tar", off.Created, tr)
 }
 
 func (o *Outgoing) saveLocked() error {

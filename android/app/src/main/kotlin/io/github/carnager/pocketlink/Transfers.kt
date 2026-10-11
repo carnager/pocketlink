@@ -1,5 +1,6 @@
 package io.github.carnager.pocketlink
 
+import android.app.DownloadManager
 import android.app.Notification
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -160,6 +161,7 @@ class Transfers(private val ctx: Context, private val link: Link, dataDir: File,
     }
 
     private fun download(offer: JSONObject, target: Pair<String, OkHttpClient>) {
+        if (offer.optInt("files") > 0) return downloadTar(offer, target)
         val (base, client) = target
         val id = offer.getString("id")
         val name = offer.getString("name")
@@ -198,6 +200,50 @@ class Transfers(private val ctx: Context, private val link: Link, dataDir: File,
         val view = Intent(Intent.ACTION_VIEW).setDataAndType(uri, offer.optString("mime"))
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
         finished(id.hashCode(), "Received $name", "from ${link.name}", view)
+    }
+
+    /**
+     * Several files or folders as one archive, unpacked while it arrives;
+     * see [Unpacker]. Resumes from the last checkpoint.
+     */
+    private fun downloadTar(offer: JSONObject, target: Pair<String, OkHttpClient>) {
+        val (base, client) = target
+        val id = offer.getString("id")
+        val files = offer.getInt("files")
+        val size = offer.getLong("size")
+        val what = offer.optString("name").ifEmpty { if (files == 1) "1 file" else "$files files" }
+        val have = offer.optLong("done", 0)
+
+        val req = Request.Builder().url("$base/files/out/$id")
+            .apply { if (have > 0) header("Range", "bytes=$have-") }
+            .build()
+        client.newCall(req).execute().use { r ->
+            when (r.code) {
+                206 -> {}
+                200 -> if (have > 0) throw IOException("server ignored the range") // it never does
+                404, 410 -> {
+                    downloads.remove(id)
+                    link.send("file.done", JSONObject().put("id", id))
+                    finished(id.hashCode(), "Could not receive $what", "No longer available on the desktop", null)
+                    return
+                }
+                else -> throw IOException("GET: ${r.code}")
+            }
+            progress(id, "Receiving $what", have, size)
+            Unpacker(ctx, offer, downloads::persist) { bytes, done ->
+                progress(id, "Receiving $what: $done of $files files", bytes, size)
+            }.run(r.body.byteStream())
+        }
+
+        downloads.remove(id)
+        link.send("file.done", JSONObject().put("id", id))
+        val view = if (Links.get(ctx).prefs.saveTree == null) {
+            Intent(DownloadManager.ACTION_VIEW_DOWNLOADS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        } else {
+            null
+        }
+        val title = if (offer.optString("name").isEmpty()) "Received $what" else "Received $what ($files files)"
+        finished(id.hashCode(), title, "from ${link.name}", view)
     }
 
     private fun copy(input: InputStream, part: File, append: Boolean, id: String, name: String, start: Long, size: Long) {
