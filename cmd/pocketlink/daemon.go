@@ -237,7 +237,7 @@ func runDaemon(args []string) error {
 
 	errc := make(chan error, 2)
 	go func() { errc <- srv.ServeTLS(ln, "", "") }()
-	var page *webui.Server
+	var page *webui.Page
 	handle := func(req control.Request) (any, error) {
 		switch req.Cmd {
 		case "pair":
@@ -281,18 +281,19 @@ func runDaemon(args []string) error {
 		case "set":
 			return settings.set(req.Key, req.Value)
 		case "settings":
-			if page == nil {
-				return nil, errors.New("the settings page couldn't start; see the daemon log")
+			url, err := page.Open()
+			if err != nil {
+				return nil, fmt.Errorf("starting the settings page: %w", err)
 			}
-			return settingsReply{URL: page.URL()}, nil
+			return settingsReply{URL: url}, nil
 		default:
 			return nil, fmt.Errorf("unknown command %q", req.Cmd)
 		}
 	}
-	// The settings page answers through the same commands as the CLI.
-	if page, err = webui.Start(handle); err != nil {
-		slog.Warn("settings page disabled", "err", err)
-	}
+	// The settings page answers through the same commands as the CLI, and
+	// runs only while it's used.
+	page = webui.NewPage(handle)
+	defer page.Close()
 	go func() {
 		errc <- control.Serve(ctx, control.SocketPath(), handle)
 	}()

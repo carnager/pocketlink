@@ -96,3 +96,43 @@ func TestAPI(t *testing.T) {
 		t.Fatalf("pair: %d %s", w.Code, w.Body.String()[:min(200, w.Body.Len())])
 	}
 }
+
+// The page runs only on demand, and stops when it isn't used.
+func TestPageIdle(t *testing.T) {
+	p := NewPage(func(control.Request) (any, error) { return map[string]string{}, nil })
+	p.idle = 300 * time.Millisecond
+	defer p.Close()
+
+	get := func(u string) error {
+		resp, err := http.Get(u)
+		if err == nil {
+			resp.Body.Close()
+		}
+		return err
+	}
+	u1, err := p.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Requests keep it running past the idle time.
+	for range 5 {
+		if err := get(u1); err != nil {
+			t.Fatalf("page stopped while in use: %v", err)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	time.Sleep(600 * time.Millisecond)
+	if err := get(u1); err == nil {
+		t.Fatal("page still running after being idle")
+	}
+	u2, err := p.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u2 == u1 {
+		t.Fatal("restarted page reuses the old address")
+	}
+	if err := get(u2); err != nil {
+		t.Fatalf("restarted page: %v", err)
+	}
+}

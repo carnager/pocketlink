@@ -101,8 +101,9 @@ skipped.
 
 `pocketlink settings` (or *pocketlink settings* in your app launcher) opens a
 settings page in the browser: your phones, pairing with the QR code on the
-page, and all settings. It is served by the daemon on a random local port,
-for your user only, behind a random token in its address.
+page, and all settings. The daemon serves it only on demand, on a random
+local port, for your user only, behind a random token in its address, and
+stops it after 10 minutes without use.
 
 Settings live in `~/.config/pocketlink/config.json`:
 

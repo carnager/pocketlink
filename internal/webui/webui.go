@@ -1,6 +1,7 @@
 // Package webui is the settings page: phones, pairing and settings in a
 // browser, for desktops without the DMS plugin. `pocketlink settings`
-// opens it.
+// opens it. It only runs while it's used: started on demand, it stops
+// after a while without requests.
 //
 // It runs on a random loopback port, for this user only (davfs.Listen),
 // but a browser is a local program too: any website could make it send
@@ -22,6 +23,7 @@ import (
 	"net/http"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"rsc.io/qr"
@@ -39,20 +41,92 @@ type Handler func(control.Request) (any, error)
 // What the page may do; everything else stays CLI-only.
 var allowed = map[string]bool{"status": true, "config": true, "set": true, "pair": true, "unpair": true}
 
+// IdleTimeout is how long the page keeps running without requests. An
+// open page asks for updates every few seconds while it's visible.
+const IdleTimeout = 10 * time.Minute
+
+// Page runs the settings page while it's in use.
+type Page struct {
+	handle Handler
+	idle   time.Duration
+
+	mu    sync.Mutex
+	srv   *Server
+	timer *time.Timer
+}
+
+func NewPage(h Handler) *Page {
+	return &Page{handle: h, idle: IdleTimeout}
+}
+
+// Open starts the page if it isn't running, with a new port and token,
+// and returns its address.
+func (p *Page) Open() (string, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.srv == nil {
+		srv, err := start(p.handle, p.touch)
+		if err != nil {
+			return "", err
+		}
+		p.srv = srv
+		p.timer = time.AfterFunc(p.idle, p.expire)
+		slog.Info("settings page started", "addr", srv.addr)
+	}
+	p.timer.Reset(p.idle)
+	return p.srv.URL(), nil
+}
+
+// Close stops the page if it's running.
+func (p *Page) Close() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.stopLocked()
+}
+
+func (p *Page) touch() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.timer != nil {
+		p.timer.Reset(p.idle)
+	}
+}
+
+func (p *Page) expire() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.srv != nil {
+		slog.Info("settings page stopped after being idle")
+	}
+	p.stopLocked()
+}
+
+func (p *Page) stopLocked() {
+	if p.timer != nil {
+		p.timer.Stop()
+		p.timer = nil
+	}
+	if p.srv != nil {
+		p.srv.srv.Close()
+		p.srv = nil
+	}
+}
+
+// Server serves one run of the page.
 type Server struct {
 	handle Handler
+	active func() // called for every request with the right token
 	addr   string
 	token  string
 	srv    *http.Server
 }
 
-// Start serves the page until the daemon stops.
-func Start(h Handler) (*Server, error) {
+func start(h Handler, active func()) (*Server, error) {
 	ln, err := davfs.Listen("127.0.0.1:0")
 	if err != nil {
 		return nil, err
 	}
-	s := &Server{handle: h, addr: ln.Addr().String(), token: rand.Text()}
+	s := &Server{handle: h, active: active, addr: ln.Addr().String(), token: rand.Text()}
 	s.srv = &http.Server{Handler: s, ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		if err := s.srv.Serve(ln); err != nil && err != http.ErrServerClosed {
@@ -66,8 +140,6 @@ func Start(h Handler) (*Server, error) {
 func (s *Server) URL() string {
 	return "http://" + s.addr + "/" + s.token + "/"
 }
-
-func (s *Server) Close() error { return s.srv.Close() }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h := w.Header()
@@ -86,6 +158,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if subtle.ConstantTimeCompare([]byte(tok), []byte(s.token)) != 1 {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
+	}
+	if s.active != nil {
+		s.active()
 	}
 	if !slash { // the page's relative links need the trailing slash
 		http.Redirect(w, r, "/"+s.token+"/", http.StatusFound)
