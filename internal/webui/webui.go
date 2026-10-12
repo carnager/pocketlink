@@ -39,11 +39,16 @@ var static embed.FS
 type Handler func(control.Request) (any, error)
 
 // What the page may do; everything else stays CLI-only.
-var allowed = map[string]bool{"status": true, "config": true, "set": true, "pair": true, "unpair": true}
+var allowed = map[string]bool{"status": true, "config": true, "set": true, "pair": true, "unpair": true, "close": true}
 
 // IdleTimeout is how long the page keeps running without requests. An
-// open page asks for updates every few seconds while it's visible.
-const IdleTimeout = 10 * time.Minute
+// open page asks for updates every few seconds while it's visible, so this
+// only counts once it's hidden; closing it stops the page right away.
+const IdleTimeout = time.Minute
+
+// closeDelay lets the reply to "close" go out, and lets a reloading page
+// (close, then load again) keep the page running.
+const closeDelay = 500 * time.Millisecond
 
 // Page runs the settings page while it's in use.
 type Page struct {
@@ -56,7 +61,20 @@ type Page struct {
 }
 
 func NewPage(h Handler) *Page {
-	return &Page{handle: h, idle: IdleTimeout}
+	p := &Page{idle: IdleTimeout}
+	// "close" comes from the page when its tab goes away.
+	p.handle = func(req control.Request) (any, error) {
+		if req.Cmd == "close" {
+			p.mu.Lock()
+			if p.timer != nil {
+				p.timer.Reset(closeDelay)
+			}
+			p.mu.Unlock()
+			return struct{}{}, nil
+		}
+		return h(req)
+	}
+	return p
 }
 
 // Open starts the page if it isn't running, with a new port and token,
@@ -96,7 +114,7 @@ func (p *Page) expire() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.srv != nil {
-		slog.Info("settings page stopped after being idle")
+		slog.Info("settings page stopped")
 	}
 	p.stopLocked()
 }

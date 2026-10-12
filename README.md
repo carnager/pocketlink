@@ -103,7 +103,7 @@ skipped.
 settings page in the browser: your phones, pairing with the QR code on the
 page, and all settings. The daemon serves it only on demand, on a random
 local port, for your user only, behind a random token in its address, and
-stops it after 10 minutes without use.
+stops it when you close the tab, or a minute after you leave it.
 
 Settings live in `~/.config/pocketlink/config.json`:
 

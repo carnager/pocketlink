@@ -136,3 +136,29 @@ func TestPageIdle(t *testing.T) {
 		t.Fatalf("restarted page: %v", err)
 	}
 }
+
+// Closing the page's tab stops it at once.
+func TestPageClose(t *testing.T) {
+	p := NewPage(func(control.Request) (any, error) { return map[string]string{}, nil })
+	defer p.Close()
+	u, err := p.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	origin := strings.TrimSuffix(u, "/"+strings.Split(strings.TrimPrefix(u, "http://"), "/")[1]+"/")
+	req, _ := http.NewRequest("POST", u+"api/close", strings.NewReader("{}"))
+	req.Header.Set("Origin", origin)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil || resp.StatusCode != 200 {
+		t.Fatalf("close: %v %v", resp, err)
+	}
+	resp.Body.Close()
+	// Any request would keep it running (a reload sends close, then loads
+	// again), so wait quietly.
+	time.Sleep(closeDelay + 300*time.Millisecond)
+	if r, err := http.Get(u); err == nil {
+		r.Body.Close()
+		t.Fatal("page still running after close")
+	}
+}

@@ -110,7 +110,10 @@ async function refresh() {
       }
     }
   } catch (e) {
-    showError("The pocketlink daemon isn't answering. " + e.message);
+    // The page stops when it isn't used; a new one has a new address.
+    showError(e instanceof TypeError
+      ? "This page has expired. Run pocketlink settings again."
+      : "The pocketlink daemon isn't answering. " + e.message);
   }
 }
 
@@ -194,6 +197,12 @@ function schedule() {
 
 $("pair").addEventListener("click", startPairing);
 $("cancelpair").addEventListener("click", stopPairing);
+
+// Closing the tab stops the page right away. keepalive lets the request
+// outlive the page.
+window.addEventListener("pagehide", () => {
+  fetch("api/close", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}", keepalive: true });
+});
 
 refresh();
 api("config").then(fill, showError);
