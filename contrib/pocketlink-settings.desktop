@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=pocketlink settings
+GenericName=Phone companion settings
+Comment=Pair phones and change pocketlink's settings
+Icon=smartphone
+Exec=pocketlink settings
+Categories=Settings;
+Keywords=phone;android;pair;kdeconnect;

@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pocketlink settings</title>
+<link rel="stylesheet" href="style.css">
+<script src="app.js" defer></script>
+</head>
+<body>
+<main>
+  <header>
+    <h1>pocketlink</h1>
+    <p id="summary" class="muted">Loading…</p>
+  </header>
+
+  <p id="error" class="banner error" hidden></p>
+  <p id="restart" class="banner" hidden>Restart the daemon for this to take effect: <code>systemctl --user restart pocketlink</code></p>
+
+  <section>
+    <div class="section-head">
+      <h2>Phones</h2>
+      <button id="pair" type="button">Pair a phone</button>
+    </div>
+    <div id="pairing" class="card pairing" hidden>
+      <img id="qr" alt="Pairing QR code" width="232" height="232">
+      <div>
+        <p><strong>Scan this with the pocketlink app.</strong></p>
+        <p class="muted">Valid for <span id="countdown"></span>.</p>
+        <p class="muted small">Or open this link on the phone:<br><code id="pairuri"></code></p>
+        <button id="cancelpair" type="button" class="quiet">Cancel</button>
+      </div>
+    </div>
+    <ul id="devices" class="cards"></ul>
+    <p id="nodevices" class="muted" hidden>No phone paired yet.</p>
+  </section>
+
+  <section>
+    <h2>Settings</h2>
+    <form id="settings" class="card rows" autocomplete="off">
+      <label class="row">
+        <span><span class="title">Received files</span><span class="hint">Folder for files sent from phones</span></span>
+        <input name="downloads" type="text" spellcheck="false">
+      </label>
+      <label class="row">
+        <span><span class="title">Sync desktop clipboard</span><span class="hint">Copying on the desktop updates the phones</span></span>
+        <input name="clipboard" type="checkbox" class="switch">
+      </label>
+      <label class="row">
+        <span><span class="title">File manager</span><span class="hint">For "Show in folder", e.g. dolphin. Empty picks one</span></span>
+        <input name="file_manager" type="text" spellcheck="false" placeholder="automatic">
+      </label>
+      <label class="row">
+        <span><span class="title">While the phone rings</span></span>
+        <select name="ring_action">
+          <option value="pause">Pause media</option>
+          <option value="lower">Lower volume</option>
+          <option value="none">Nothing</option>
+        </select>
+      </label>
+      <label class="row">
+        <span><span class="title">During a call</span></span>
+        <select name="talk_action">
+          <option value="pause">Pause media</option>
+          <option value="lower">Lower volume</option>
+          <option value="none">Nothing</option>
+        </select>
+      </label>
+      <label class="row" id="volumerow">
+        <span><span class="title">Lowered volume</span><span class="hint">Share of the volume before the call: <output id="volumeout"></output></span></span>
+        <input name="call_volume" type="range" min="5" max="90" step="5">
+      </label>
+      <details>
+        <summary>More</summary>
+        <label class="row">
+          <span><span class="title">Computer name</span><span class="hint">Shown on the phones</span></span>
+          <input name="name" type="text" spellcheck="false">
+        </label>
+        <label class="row">
+          <span><span class="title">Phone files</span><span class="hint">Local address for browsing phones' files, or "off"</span></span>
+          <input name="files" type="text" spellcheck="false">
+        </label>
+        <label class="row">
+          <span><span class="title">Phone connections</span><span class="hint">Address phones connect to</span></span>
+          <input name="listen" type="text" spellcheck="false">
+        </label>
+      </details>
+    </form>
+    <p id="flags" class="muted small" hidden></p>
+  </section>
+
+  <section id="filesinfo" hidden>
+    <h2>Phone files</h2>
+    <p class="muted">Open <code id="davkde"></code> in Dolphin, or <code id="davgtk"></code> in Thunar or Nautilus.</p>
+  </section>
+</main>
+</body>
+</html>

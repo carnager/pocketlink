@@ -99,6 +99,11 @@ clipboard" on the phone (tile, notification or app) sends images too.
 Selections that password managers mark with `x-kde-passwordManagerHint` are
 skipped.
 
+`pocketlink settings` (or *pocketlink settings* in your app launcher) opens a
+settings page in the browser: your phones, pairing with the QR code on the
+page, and all settings. It is served by the daemon on a random local port,
+for your user only, behind a random token in its address.
+
 Settings live in `~/.config/pocketlink/config.json`:
 
 ```sh

@@ -57,6 +57,9 @@ package() {
   # DankMaterialShell's system-wide plugin directory.
   install -Dm644 contrib/dms/pocketlink/* -t "$pkgdir/etc/xdg/quickshell/dms-plugins/pocketlink/"
 
+  # The settings page, for app launchers.
+  install -Dm644 contrib/pocketlink-settings.desktop -t "$pkgdir/usr/share/applications/"
+
   # "Send to phone" in file managers' context menus.
   local fm=contrib/filemanager
   install -Dm644 $fm/pocketlink-send.servicemenu.desktop "$pkgdir/usr/share/kio/servicemenus/pocketlink-send.desktop"

@@ -30,6 +30,7 @@ import (
 	"github.com/carnager/pocketlink/internal/notify"
 	"github.com/carnager/pocketlink/internal/pair"
 	"github.com/carnager/pocketlink/internal/proto"
+	"github.com/carnager/pocketlink/internal/webui"
 	"github.com/carnager/pocketlink/internal/xfer"
 )
 
@@ -236,53 +237,64 @@ func runDaemon(args []string) error {
 
 	errc := make(chan error, 2)
 	go func() { errc <- srv.ServeTLS(ln, "", "") }()
-	go func() {
-		errc <- control.Serve(ctx, control.SocketPath(), func(req control.Request) (any, error) {
-			switch req.Cmd {
-			case "pair":
-				tok, exp := pairing.Start(pairTTL)
-				offer := pair.Offer{Addrs: localAddrs(host, port), FP: fp, Token: tok, Name: *name}
-				return pairReply{URI: offer.URI(), Expires: exp}, nil
-			case "status":
-				devs := hub.Status()
-				if filesURL != "" {
-					for i := range devs {
-						devs[i].Files = strings.TrimSuffix(filesURL, "/") + files.Folder(devs[i].ID)
-					}
+	var page *webui.Server
+	handle := func(req control.Request) (any, error) {
+		switch req.Cmd {
+		case "pair":
+			tok, exp := pairing.Start(pairTTL)
+			offer := pair.Offer{Addrs: localAddrs(host, port), FP: fp, Token: tok, Name: *name}
+			return pairReply{URI: offer.URI(), Expires: exp}, nil
+		case "status":
+			devs := hub.Status()
+			if filesURL != "" {
+				for i := range devs {
+					devs[i].Files = strings.TrimSuffix(filesURL, "/") + files.Folder(devs[i].ID)
 				}
-				return statusReply{Name: *name, Fingerprint: fp, Listen: *listen, Files: filesURL, Devices: devs}, nil
-			case "unpair":
-				id, err := hub.Resolve(req.ID)
-				if err != nil {
-					return nil, err
-				}
-				if err := outgoing.ForgetDevice(id); err != nil {
-					slog.Warn("withdrawing offers", "err", err)
-				}
-				return nil, hub.Forget(id)
-			case "clip":
-				// Manual pushes always go out; watcher events are dropped if
-				// they only echo what a phone just sent us.
-				if !clipboard.Changed(req.Text) && req.Watch {
-					return nil, nil
-				}
-				return nil, hub.Broadcast(proto.TypeClipSet, proto.ClipSet{Text: req.Text})
-			case "clip-image":
-				if !clipboard.Changed(string(req.Data)) && req.Watch {
-					return nil, nil
-				}
-				id := images.Put(req.Mime, req.Data)
-				return nil, hub.Broadcast(proto.TypeClipImage, proto.ClipImage{ID: id, Mime: req.Mime, Size: len(req.Data)})
-			case "send":
-				return sendFiles(hub, store, outgoing, req)
-			case "config":
-				return settings.get(), nil
-			case "set":
-				return settings.set(req.Key, req.Value)
-			default:
-				return nil, fmt.Errorf("unknown command %q", req.Cmd)
 			}
-		})
+			return statusReply{Name: *name, Fingerprint: fp, Listen: *listen, Files: filesURL, Devices: devs}, nil
+		case "unpair":
+			id, err := hub.Resolve(req.ID)
+			if err != nil {
+				return nil, err
+			}
+			if err := outgoing.ForgetDevice(id); err != nil {
+				slog.Warn("withdrawing offers", "err", err)
+			}
+			return nil, hub.Forget(id)
+		case "clip":
+			// Manual pushes always go out; watcher events are dropped if
+			// they only echo what a phone just sent us.
+			if !clipboard.Changed(req.Text) && req.Watch {
+				return nil, nil
+			}
+			return nil, hub.Broadcast(proto.TypeClipSet, proto.ClipSet{Text: req.Text})
+		case "clip-image":
+			if !clipboard.Changed(string(req.Data)) && req.Watch {
+				return nil, nil
+			}
+			id := images.Put(req.Mime, req.Data)
+			return nil, hub.Broadcast(proto.TypeClipImage, proto.ClipImage{ID: id, Mime: req.Mime, Size: len(req.Data)})
+		case "send":
+			return sendFiles(hub, store, outgoing, req)
+		case "config":
+			return settings.get(), nil
+		case "set":
+			return settings.set(req.Key, req.Value)
+		case "settings":
+			if page == nil {
+				return nil, errors.New("the settings page couldn't start; see the daemon log")
+			}
+			return settingsReply{URL: page.URL()}, nil
+		default:
+			return nil, fmt.Errorf("unknown command %q", req.Cmd)
+		}
+	}
+	// The settings page answers through the same commands as the CLI.
+	if page, err = webui.Start(handle); err != nil {
+		slog.Warn("settings page disabled", "err", err)
+	}
+	go func() {
+		errc <- control.Serve(ctx, control.SocketPath(), handle)
 	}()
 
 	slog.Info("pocketlink running", "name", *name, "listen", *listen, "fingerprint", pair.ShortID(fp))

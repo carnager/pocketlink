@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"text/tabwriter"
@@ -37,6 +38,7 @@ commands:
   send [-to DEV] [-notify] FILE|FOLDER...
                     send files and folders to a phone (default: all paired
                     phones); -notify reports the result as a notification
+  settings [-print]  open the settings page in the browser (or print its address)
   config [-json] [KEY VALUE]
                     show settings, or change one (name, listen, downloads,
                     clipboard, files, file_manager, ring_action,
@@ -52,6 +54,10 @@ type statusReply struct {
 	Listen      string              `json:"listen"`
 	Files       string              `json:"files,omitempty"` // WebDAV URL for phones' files
 	Devices     []conn.DeviceStatus `json:"devices"`
+}
+
+type settingsReply struct {
+	URL string `json:"url"`
 }
 
 type pairReply struct {
@@ -82,6 +88,8 @@ func main() {
 		err = runSend(args)
 	case "config":
 		err = runConfig(args)
+	case "settings":
+		err = runSettings(args)
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 	default:
@@ -160,6 +168,26 @@ func runStatus(args []string) error {
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%s\n", pair.ShortID(d.ID), d.Name, state, d.Pending, seen)
 	}
 	return tw.Flush()
+}
+
+func runSettings(args []string) error {
+	fs := flag.NewFlagSet("settings", flag.ExitOnError)
+	print := fs.Bool("print", false, "print the page's address instead of opening it")
+	fs.Parse(args)
+	var r settingsReply
+	if err := control.Call(control.Request{Cmd: "settings"}, &r); err != nil {
+		return err
+	}
+	if *print {
+		fmt.Println(r.URL)
+		return nil
+	}
+	cmd := exec.Command("xdg-open", r.URL)
+	if err := cmd.Start(); err != nil {
+		fmt.Println(r.URL)
+		return fmt.Errorf("opening the browser: %w", err)
+	}
+	return nil
 }
 
 func runConfig(args []string) error {
