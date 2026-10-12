@@ -4,12 +4,14 @@ package notify
 
 import (
 	"bytes"
+	"fmt"
 	"image"
 	"image/draw"
 	_ "image/jpeg" // contact photos
 	_ "image/png"  //
 	"log/slog"
 	"net/url"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -36,8 +38,9 @@ type Sink struct {
 	fileManager string // command for "Show in folder"; "" for the desktop's own
 
 	mu      sync.Mutex
-	ids     map[string]uint32              // device id + "/" + phone key -> desktop notification id
-	actions map[uint32]func(action string) // desktop notification id -> action handler
+	ids     map[string]uint32                     // device id + "/" + phone key -> desktop notification id
+	actions map[uint32]func(action, token string) // desktop notification id -> action handler
+	tokens  map[uint32]string                     // activation token sent with the latest click
 }
 
 func New() (*Sink, error) {
@@ -49,9 +52,12 @@ func New() (*Sink, error) {
 		obj:     conn.Object(busName, objPath),
 		conn:    conn,
 		ids:     map[string]uint32{},
-		actions: map[uint32]func(string){},
+		actions: map[uint32]func(string, string){},
+		tokens:  map[uint32]string{},
 	}
-	for _, member := range []string{"ActionInvoked", "NotificationClosed"} {
+	// ActivationToken comes right before ActionInvoked: what a program
+	// started for the click needs to be allowed to raise its window.
+	for _, member := range []string{"ActivationToken", "ActionInvoked", "NotificationClosed"} {
 		err := conn.AddMatchSignal(
 			dbus.WithMatchObjectPath(objPath),
 			dbus.WithMatchInterface(busName),
@@ -124,12 +130,12 @@ func (s *Sink) FileReceived(dev pair.Device, path string, onCopy func() error) e
 		actions = append(actions, "copy", "Copy to clipboard")
 	}
 	_, err := s.show("pocketlink", 0, "document-save", "File from "+dev.Name, filepath.Base(path), actions,
-		func(action string) {
+		func(action, token string) {
 			switch action {
 			case "default":
-				xdgOpen(path)
+				xdgOpen(path, token)
 			case "folder":
-				s.showInFolder(path)
+				s.showInFolder(path, token)
 			case "copy":
 				if err := onCopy(); err != nil {
 					slog.Warn("copying received file to the clipboard", "path", path, "err", err)
@@ -143,7 +149,7 @@ func (s *Sink) FileReceived(dev pair.Device, path string, onCopy func() error) e
 func (s *Sink) IncomingCall(dev pair.Device, replaces uint32, caller string, photo []byte, onMute func()) (uint32, error) {
 	return s.showWith(dev.Name, replaces, "call-start", "Incoming call", caller, imageHints(photo),
 		[]string{"mute", "Mute ringer"},
-		func(action string) {
+		func(action, _ string) {
 			if action == "mute" {
 				onMute()
 			}
@@ -190,11 +196,11 @@ func (s *Sink) Close(id uint32) error {
 	return s.obj.Call(busName+".CloseNotification", 0, id).Err
 }
 
-func (s *Sink) show(app string, replaces uint32, icon, title, body string, actions []string, onAction func(string)) (uint32, error) {
+func (s *Sink) show(app string, replaces uint32, icon, title, body string, actions []string, onAction func(action, token string)) (uint32, error) {
 	return s.showWith(app, replaces, icon, title, body, nil, actions, onAction)
 }
 
-func (s *Sink) showWith(app string, replaces uint32, icon, title, body string, hints map[string]dbus.Variant, actions []string, onAction func(string)) (uint32, error) {
+func (s *Sink) showWith(app string, replaces uint32, icon, title, body string, hints map[string]dbus.Variant, actions []string, onAction func(action, token string)) (uint32, error) {
 	if actions == nil {
 		actions = []string{}
 	}
@@ -226,14 +232,22 @@ func (s *Sink) handleSignals(signals <-chan *dbus.Signal) {
 		if !ok {
 			continue
 		}
+		arg, _ := sig.Body[1].(string)
 		s.mu.Lock()
 		h := s.actions[id]
-		if sig.Name == busName+".NotificationClosed" {
+		token := s.tokens[id]
+		switch sig.Name {
+		case busName + ".ActivationToken":
+			s.tokens[id] = arg
+		case busName + ".ActionInvoked":
+			delete(s.tokens, id)
+		case busName + ".NotificationClosed":
 			delete(s.actions, id)
+			delete(s.tokens, id)
 		}
 		s.mu.Unlock()
-		if action, ok := sig.Body[1].(string); ok && h != nil && sig.Name == busName+".ActionInvoked" {
-			h(action)
+		if sig.Name == busName+".ActionInvoked" && h != nil {
+			h(arg, token)
 		}
 	}
 }
@@ -247,34 +261,79 @@ func (s *Sink) SetFileManager(cmd string) {
 }
 
 // showInFolder opens the folder holding path, with the file selected where
-// the file manager can do that.
-func (s *Sink) showInFolder(path string) {
+// the file manager can do that. token is the click's activation token.
+//
+// With a token, the desktop's file manager service shows the file. Without
+// one (not every notification daemon sends it), a window that service
+// opens or reuses can stay in the background, so a new file manager window
+// is started instead: Wayland compositors focus new windows.
+func (s *Sink) showInFolder(path, token string) {
 	s.fmMu.Lock()
 	fm := s.fileManager
 	s.fmMu.Unlock()
-	if fm != "" {
-		args := strings.Fields(fm)
-		if filepath.Base(args[0]) == "dolphin" {
-			args = append(args, "--select", path)
-		} else {
-			args = append(args, filepath.Dir(path))
+	if fm == "" && token != "" {
+		uri := (&url.URL{Scheme: "file", Path: path}).String()
+		err := s.conn.Object("org.freedesktop.FileManager1", "/org/freedesktop/FileManager1").
+			Call("org.freedesktop.FileManager1.ShowItems", 0, []string{uri}, token).Err
+		if err == nil {
+			return
 		}
-		start(args[0], args[1:]...)
+		slog.Info("file manager service failed", "err", err)
+	}
+	if fm == "" {
+		fm = s.detectFileManager()
+	}
+	if fm == "" {
+		xdgOpen(filepath.Dir(path), token)
 		return
 	}
-	// The standard interface for this; xdg-open on the folder would use
-	// whatever handles inode/directory, which needn't be a file manager.
-	uri := (&url.URL{Scheme: "file", Path: path}).String()
-	err := s.conn.Object("org.freedesktop.FileManager1", "/org/freedesktop/FileManager1").
-		Call("org.freedesktop.FileManager1.ShowItems", 0, []string{uri}, "").Err
-	if err != nil {
-		slog.Info("no file manager service, using xdg-open", "err", err)
-		xdgOpen(filepath.Dir(path))
+	args := showArgs(strings.Fields(fm), path)
+	start(token, args[0], args[1:]...)
+}
+
+// showArgs is the command line that opens a new window of file manager fm
+// showing path.
+func showArgs(fm []string, path string) []string {
+	switch filepath.Base(fm[0]) {
+	case "dolphin", "nautilus":
+		return append(fm, "--new-window", "--select", path)
+	default:
+		return append(fm, filepath.Dir(path))
 	}
 }
 
-func start(name string, args ...string) {
+var knownFileManagers = []string{"dolphin", "nautilus", "thunar", "nemo", "pcmanfm-qt", "pcmanfm", "caja"}
+
+// detectFileManager picks the file manager that runs the desktop's file
+// manager service, else the first one installed.
+func (s *Sink) detectFileManager() string {
+	var pid uint32
+	err := s.conn.BusObject().Call("org.freedesktop.DBus.GetConnectionUnixProcessID", 0, "org.freedesktop.FileManager1").Store(&pid)
+	if err == nil {
+		if exe, err := os.Readlink(fmt.Sprintf("/proc/%d/exe", pid)); err == nil {
+			name := strings.ToLower(filepath.Base(exe))
+			for _, k := range knownFileManagers {
+				if name == k {
+					return exe
+				}
+			}
+		}
+	}
+	for _, k := range knownFileManagers {
+		if p, err := exec.LookPath(k); err == nil {
+			return p
+		}
+	}
+	return ""
+}
+
+// start runs a program for a notification click, handing it the click's
+// activation token the usual ways, so it may raise its window.
+func start(token, name string, args ...string) {
 	cmd := exec.Command(name, args...)
+	if token != "" {
+		cmd.Env = append(os.Environ(), "XDG_ACTIVATION_TOKEN="+token, "DESKTOP_STARTUP_ID="+token)
+	}
 	if err := cmd.Start(); err != nil {
 		slog.Warn("starting "+name, "err", err)
 		return
@@ -282,11 +341,6 @@ func start(name string, args ...string) {
 	go cmd.Wait()
 }
 
-func xdgOpen(path string) {
-	cmd := exec.Command("xdg-open", path)
-	if err := cmd.Start(); err != nil {
-		slog.Warn("xdg-open", "err", err)
-		return
-	}
-	go cmd.Wait()
+func xdgOpen(path, token string) {
+	start(token, "xdg-open", path)
 }
