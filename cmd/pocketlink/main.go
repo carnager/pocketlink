@@ -175,19 +175,67 @@ func runSettings(args []string) error {
 	print := fs.Bool("print", false, "print the page's address instead of opening it")
 	fs.Parse(args)
 	var r settingsReply
-	if err := control.Call(control.Request{Cmd: "settings"}, &r); err != nil {
+	err := control.Call(control.Request{Cmd: "settings"}, &r)
+	if *print || err != nil {
+		if err == nil {
+			fmt.Println(r.URL)
+		} else if !isTerminal() {
+			notify.Notice("dialog-error", "pocketlink settings", err.Error())
+		}
 		return err
 	}
-	if *print {
-		fmt.Println(r.URL)
+	if err := openBrowser(r.URL); err != nil {
+		// From a launcher there's no terminal to print to. The address
+		// stays off the clipboard: clipboard sync would send it to phones.
+		if !isTerminal() {
+			notify.Notice("dialog-information", "Open pocketlink settings in your browser", r.URL)
+		}
+		fmt.Printf("Couldn't open a browser (%v).\nOpen this address in one:\n%s\n\nSet a default browser with xdg-settings set default-web-browser NAME.desktop, or set $BROWSER.\n", err, r.URL)
 		return nil
 	}
-	cmd := exec.Command("xdg-open", r.URL)
-	if err := cmd.Start(); err != nil {
-		fmt.Println(r.URL)
-		return fmt.Errorf("opening the browser: %w", err)
+	if isTerminal() {
+		fmt.Println("Opened", r.URL)
 	}
 	return nil
+}
+
+// openBrowser tries $BROWSER (a colon-separated list, by convention), then
+// xdg-open. A program that exits with an error within a few seconds
+// failed; one still running by then, or done without error, opened it.
+func openBrowser(url string) error {
+	var cmds [][]string
+	for _, b := range strings.Split(os.Getenv("BROWSER"), ":") {
+		if f := strings.Fields(b); len(f) > 0 {
+			cmds = append(cmds, append(f, url))
+		}
+	}
+	cmds = append(cmds, []string{"xdg-open", url})
+
+	var errs []error
+	for _, c := range cmds {
+		cmd := exec.Command(c[0], c[1:]...)
+		if err := cmd.Start(); err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		done := make(chan error, 1)
+		go func() { done <- cmd.Wait() }()
+		select {
+		case err := <-done:
+			if err == nil {
+				return nil
+			}
+			errs = append(errs, fmt.Errorf("%s: %w", c[0], err))
+		case <-time.After(3 * time.Second):
+			return nil // still running: a browser that stays in front
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func isTerminal() bool {
+	fi, err := os.Stdout.Stat()
+	return err == nil && fi.Mode()&os.ModeCharDevice != 0
 }
 
 func runConfig(args []string) error {
