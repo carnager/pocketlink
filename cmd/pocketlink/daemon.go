@@ -79,6 +79,7 @@ func runDaemon(args []string) error {
 	if err != nil {
 		return fmt.Errorf("connecting to session bus: %w", err)
 	}
+	sink.SetFileManager(cfg.FileManager)
 	clipboard := &clip.Clipboard{}
 	images := &clip.Images{}
 
@@ -213,6 +214,7 @@ func runDaemon(args []string) error {
 	settings := &settingsState{path: cfgPath, cfg: cfg, overridden: overridden, apply: func(c config.Config) {
 		incoming.SetDestDir(c.Downloads)
 		watcher.enable(c.Clipboard)
+		sink.SetFileManager(c.FileManager)
 	}}
 	phoneCalls = newCalls(settings, players, sink, hub)
 

@@ -110,6 +110,7 @@ pocketlink config ring_action lower    # while the phone rings: pause | lower | 
 pocketlink config talk_action pause    # during a call: pause | lower | none
 pocketlink config call_volume 40       # "lower" turns the volume down to 40% of what it was
 pocketlink config files off            # needs a daemon restart; default 127.0.0.1:1765
+pocketlink config file_manager dolphin # for "Show in folder"; empty asks the desktop's file manager service
 ```
 
 ## Phone files in your file manager

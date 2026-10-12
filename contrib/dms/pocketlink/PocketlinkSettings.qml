@@ -41,7 +41,7 @@ PluginSettings {
     StringSetting {
         settingKey: "fileManager"
         label: "File manager"
-        description: "Opens the phones' files: dolphin, thunar, nautilus, nemo or another command. Empty uses the first of these that is installed."
+        description: "Opens the phones' files, and the folder of files received from them: dolphin, thunar, nautilus, nemo or another command. Empty uses the first of these that is installed."
         placeholder: "e.g. thunar (empty: automatic)"
         defaultValue: ""
     }

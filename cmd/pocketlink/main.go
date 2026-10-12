@@ -39,7 +39,8 @@ commands:
                     phones); -notify reports the result as a notification
   config [-json] [KEY VALUE]
                     show settings, or change one (name, listen, downloads,
-                    clipboard, files, ring_action, talk_action, call_volume)
+                    clipboard, files, file_manager, ring_action,
+                    talk_action, call_volume)
 
 Phones' files: open webdav://127.0.0.1:1765/ in Dolphin, or
 dav://127.0.0.1:1765/ in Thunar or Nautilus (see the files setting).

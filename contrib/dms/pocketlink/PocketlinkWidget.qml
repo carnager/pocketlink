@@ -36,6 +36,8 @@ PluginComponent {
     readonly property string configuredBinary: String(loadPluginValue("pocketlinkBinary", "pocketlink")).trim()
     readonly property string pocketlinkBinary: configuredBinary.length > 0 ? configuredBinary : "pocketlink"
     readonly property string fileManager: String(loadPluginValue("fileManager", "")).trim()
+    // The plugin's setting, else the daemon's (which "Show in folder" uses).
+    readonly property string effectiveFileManager: fileManager.length > 0 ? fileManager : (config && config.file_manager ? config.file_manager : "")
     readonly property string filesUrl: status && status.files ? status.files : ""
     readonly property var devices: status && status.devices ? status.devices : []
     readonly property int connectedCount: devices.filter(d => d.connected).length
@@ -174,9 +176,20 @@ PluginComponent {
             esac
             command -v "\${fm%% *}" >/dev/null || { echo "$fm is not installed" >&2; exit 1; }
             setsid -f $fm "$url" >/dev/null 2>&1 </dev/null
-        `, "sh", fileManager, url];
+        `, "sh", effectiveFileManager, url];
         filesRunner.running = true;
     }
+
+    // The daemon opens received files' folders, so it gets the same file
+    // manager as this plugin.
+    function syncFileManager() {
+        if (!config || fileManager.length === 0 || isOverridden("file_manager"))
+            return;
+        if ((config.file_manager || "") !== fileManager)
+            runAction(["config", "file_manager", fileManager], "set the file manager");
+    }
+
+    onFileManagerChanged: syncFileManager()
 
     function openFileBrowser(loader) {
         loader.active = true;
@@ -184,7 +197,10 @@ PluginComponent {
             loader.item.open();
     }
 
-    Component.onCompleted: refreshStatus()
+    Component.onCompleted: {
+        refreshStatus();
+        refreshConfig();
+    }
 
     Timer {
         interval: root.pluginPopoutVisible || root.pairing ? 2000 : 15000
@@ -261,6 +277,7 @@ PluginComponent {
                     root.config = reply.config;
                     root.overridden = reply.overridden || [];
                     root.configError = "";
+                    root.syncFileManager();
                 } catch (e) {
                     root.configError = "Unexpected output from pocketlink config";
                 }

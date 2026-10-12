@@ -9,6 +9,7 @@ import (
 	_ "image/jpeg" // contact photos
 	_ "image/png"  //
 	"log/slog"
+	"net/url"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -28,7 +29,11 @@ const (
 var escapeMarkup = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;")
 
 type Sink struct {
-	obj dbus.BusObject
+	obj  dbus.BusObject
+	conn *dbus.Conn
+
+	fmMu        sync.Mutex
+	fileManager string // command for "Show in folder"; "" for the desktop's own
 
 	mu      sync.Mutex
 	ids     map[string]uint32              // device id + "/" + phone key -> desktop notification id
@@ -42,6 +47,7 @@ func New() (*Sink, error) {
 	}
 	s := &Sink{
 		obj:     conn.Object(busName, objPath),
+		conn:    conn,
 		ids:     map[string]uint32{},
 		actions: map[uint32]func(string){},
 	}
@@ -123,7 +129,7 @@ func (s *Sink) FileReceived(dev pair.Device, path string, onCopy func() error) e
 			case "default":
 				xdgOpen(path)
 			case "folder":
-				xdgOpen(filepath.Dir(path))
+				s.showInFolder(path)
 			case "copy":
 				if err := onCopy(); err != nil {
 					slog.Warn("copying received file to the clipboard", "path", path, "err", err)
@@ -230,6 +236,50 @@ func (s *Sink) handleSignals(signals <-chan *dbus.Signal) {
 			h(action)
 		}
 	}
+}
+
+// SetFileManager sets the command "Show in folder" runs, or "" to ask the
+// desktop's file manager service.
+func (s *Sink) SetFileManager(cmd string) {
+	s.fmMu.Lock()
+	defer s.fmMu.Unlock()
+	s.fileManager = strings.TrimSpace(cmd)
+}
+
+// showInFolder opens the folder holding path, with the file selected where
+// the file manager can do that.
+func (s *Sink) showInFolder(path string) {
+	s.fmMu.Lock()
+	fm := s.fileManager
+	s.fmMu.Unlock()
+	if fm != "" {
+		args := strings.Fields(fm)
+		if filepath.Base(args[0]) == "dolphin" {
+			args = append(args, "--select", path)
+		} else {
+			args = append(args, filepath.Dir(path))
+		}
+		start(args[0], args[1:]...)
+		return
+	}
+	// The standard interface for this; xdg-open on the folder would use
+	// whatever handles inode/directory, which needn't be a file manager.
+	uri := (&url.URL{Scheme: "file", Path: path}).String()
+	err := s.conn.Object("org.freedesktop.FileManager1", "/org/freedesktop/FileManager1").
+		Call("org.freedesktop.FileManager1.ShowItems", 0, []string{uri}, "").Err
+	if err != nil {
+		slog.Info("no file manager service, using xdg-open", "err", err)
+		xdgOpen(filepath.Dir(path))
+	}
+}
+
+func start(name string, args ...string) {
+	cmd := exec.Command(name, args...)
+	if err := cmd.Start(); err != nil {
+		slog.Warn("starting "+name, "err", err)
+		return
+	}
+	go cmd.Wait()
 }
 
 func xdgOpen(path string) {

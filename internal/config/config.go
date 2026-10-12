@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/adrg/xdg"
 )
@@ -25,6 +26,10 @@ type Config struct {
 	// phones' files, or "off".
 	Files string `json:"files"`
 
+	// FileManager is the command "Show in folder" runs (e.g. dolphin), or
+	// "" for the desktop's file manager service.
+	FileManager string `json:"file_manager,omitempty"`
+
 	// What to do with desktop audio while the phone rings and during a call:
 	// "pause" media, "lower" the volume to CallVolume percent of what it
 	// was, or "none".
@@ -37,7 +42,7 @@ type Config struct {
 }
 
 // Keys lists the settable keys, in display order.
-var Keys = []string{"name", "listen", "downloads", "clipboard", "files", "ring_action", "talk_action", "call_volume"}
+var Keys = []string{"name", "listen", "downloads", "clipboard", "files", "file_manager", "ring_action", "talk_action", "call_volume"}
 
 // NeedsRestart reports whether changing key only takes effect after the
 // daemon restarts.
@@ -135,6 +140,8 @@ func (c *Config) Set(key, value string) error {
 			}
 		}
 		c.Files = value
+	case "file_manager":
+		c.FileManager = strings.TrimSpace(value)
 	case "ring_action", "talk_action":
 		if value != "pause" && value != "lower" && value != "none" {
 			return fmt.Errorf("%s must be pause, lower or none", key)
