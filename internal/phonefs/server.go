@@ -221,7 +221,8 @@ func (s *Server) handle(e proto.Envelope, payload []byte) (any, []byte, error) {
 		if err := syscall.Statfs(s.local(r.Path), &st); err != nil {
 			return nil, nil, err
 		}
-		return proto.FSSpace{Total: int64(st.Blocks) * st.Bsize, Free: int64(st.Bavail) * st.Bsize}, nil, nil
+		// Bsize is 32 bits wide on 32-bit systems.
+		return proto.FSSpace{Total: int64(st.Blocks) * int64(st.Bsize), Free: int64(st.Bavail) * int64(st.Bsize)}, nil, nil
 	}
 	return nil, nil, &proto.Error{Code: proto.ErrUnsupported, Message: e.Type}
 }

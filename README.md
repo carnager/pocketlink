@@ -51,6 +51,12 @@ Android is blocking it because the APK was installed from a browser download:
 open the app's *App info*, tap ⋮ → *Allow restricted settings*, and try again.
 Installing with Obtainium, F-Droid or `adb install` avoids this.
 
+Other distributions: each [release](https://github.com/carnager/pocketlink/releases/latest)
+has the desktop binary for x86-64, ARM64, ARMv7, i686 and RISC-V 64
+(`pocketlink-VERSION-linux-ARCH.tar.gz`, static, checksums in `SHA256SUMS`),
+with the systemd unit and the other files below. Put `pocketlink` in
+`~/.local/bin` and continue with the `systemctl` steps.
+
 From source, desktop (needs Go ≥ 1.24, `wl-clipboard`, a notification daemon, and
 `wpctl` for lowering the volume during calls):
 
