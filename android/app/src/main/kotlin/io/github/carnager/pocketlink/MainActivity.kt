@@ -378,7 +378,8 @@ class MainActivity : ComponentActivity() {
     private fun requirements(): List<Requirement> {
         val out = mutableListOf<Requirement>()
         val nm = getSystemService(NotificationManager::class.java)
-        if (!nm.isNotificationListenerAccessGranted(ComponentName(this, NotifListener::class.java))) {
+        val listening = nm.isNotificationListenerAccessGranted(ComponentName(this, NotifListener::class.java))
+        if (!listening) {
             out += Requirement(
                 Icons.Rounded.Notifications, "Notification access", "To show your phone's notifications on the desktop",
                 // Android blocks this for apps installed from a browser download.
@@ -399,7 +400,12 @@ class MainActivity : ComponentActivity() {
         }
         // Unused apps lose their permissions and get paused after a few
         // months, and pocketlink is rarely opened: it works in the background.
-        if (Build.VERSION.SDK_INT >= 30 && !packageManager.isAutoRevokeWhitelisted) {
+        // From Android 13 an enabled notification listener exempts the app
+        // already; the switch is then greyed out and isAutoRevokeWhitelisted
+        // still says no.
+        if (Build.VERSION.SDK_INT >= 30 && !packageManager.isAutoRevokeWhitelisted &&
+            !(Build.VERSION.SDK_INT >= 33 && listening)
+        ) {
             out += Requirement(Icons.Rounded.Restore, "Keep running when unused", "Turn off “Pause app activity if unused”, so Android doesn't stop pocketlink when you don't open it for a while") {
                 try {
                     startActivity(IntentCompat.createManageUnusedAppRestrictionsIntent(this, packageName))
