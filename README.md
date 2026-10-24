@@ -1,9 +1,9 @@
 # pocketlink
 
-A small phone companion for standalone Wayland compositors (sway, niri, …):
-notifications, clipboard sync, file transfer, media remote control and call
-handling, without KDE libraries. A phone can be paired with several
-computers.
+A lightweight phone companion for Linux desktops: notifications, clipboard
+sync, file transfer, media remote control and call handling, without KDE
+libraries. It is made with sway, niri & co in mind, but needs nothing from them.
+A phone can be paired with several computers.
 
 ## Design
 
