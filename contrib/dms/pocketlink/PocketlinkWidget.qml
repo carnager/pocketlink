@@ -45,6 +45,16 @@ PluginComponent {
     readonly property int connectedCount: devices.filter(d => d.connected).length
     readonly property bool pairing: qrPath.length > 0
     readonly property string qrFile: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/pocketlink-pair.png"
+    // The emptiest connected phone's battery, for the bar; null if none says.
+    readonly property var pillBattery: {
+        let low = null;
+        for (const d of devices) {
+            if (d.connected && d.battery && (low === null || d.battery.level < low.level))
+                low = d.battery;
+        }
+        return low;
+    }
+    readonly property bool pillBatteryLow: pillBattery !== null && pillBattery.level <= 15 && !pillBattery.charging
     readonly property string pillIconName: connectedCount > 0 ? "phonelink" : "phonelink_off"
     readonly property string summaryText: {
         if (statusError.length > 0)
@@ -461,16 +471,38 @@ PluginComponent {
 
     horizontalBarPill: Component {
         Rectangle {
-            width: 24
+            width: Math.max(24, pillRow.implicitWidth + (root.pillBattery ? 12 : 0))
             height: 24
             radius: 12
             color: root.pluginPopoutVisible ? Theme.widgetBaseHoverColor : "transparent"
 
-            DankIcon {
+            Row {
+                id: pillRow
                 anchors.centerIn: parent
-                name: root.pillIconName
-                size: 15
-                color: root.connectedCount > 0 ? Theme.primary : Theme.widgetTextColor
+                spacing: 3
+
+                DankIcon {
+                    anchors.verticalCenter: parent.verticalCenter
+                    name: root.pillIconName
+                    size: 15
+                    color: root.connectedCount > 0 ? Theme.primary : Theme.widgetTextColor
+                }
+
+                StyledText {
+                    visible: root.pillBattery !== null
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: root.pillBattery ? root.pillBattery.level + "%" : ""
+                    font.pixelSize: Theme.fontSizeSmall
+                    color: root.pillBatteryLow ? Theme.error : Theme.widgetTextColor
+                }
+
+                DankIcon {
+                    visible: root.pillBattery !== null && root.pillBattery.charging
+                    anchors.verticalCenter: parent.verticalCenter
+                    name: "bolt"
+                    size: 12
+                    color: Theme.widgetTextColor
+                }
             }
 
             Rectangle {
@@ -490,15 +522,29 @@ PluginComponent {
     verticalBarPill: Component {
         Rectangle {
             width: Theme.barIconSize(root.barThickness)
-            height: Theme.barIconSize(root.barThickness)
+            height: Math.max(Theme.barIconSize(root.barThickness), pillColumn.implicitHeight + (root.pillBattery ? 6 : 0))
             radius: Theme.cornerRadius
             color: root.pluginPopoutVisible ? Theme.widgetBaseHoverColor : "transparent"
 
-            DankIcon {
+            Column {
+                id: pillColumn
                 anchors.centerIn: parent
-                name: root.pillIconName
-                size: Math.max(14, Theme.barIconSize(root.barThickness) - 4)
-                color: root.connectedCount > 0 ? Theme.primary : Theme.widgetIconColor
+
+                DankIcon {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    name: root.pillIconName
+                    size: Math.max(14, Theme.barIconSize(root.barThickness) - 4)
+                    color: root.connectedCount > 0 ? Theme.primary : Theme.widgetIconColor
+                }
+
+                // Just the number: a vertical bar has no room for "%".
+                StyledText {
+                    visible: root.pillBattery !== null
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: root.pillBattery ? String(root.pillBattery.level) : ""
+                    font.pixelSize: Theme.fontSizeSmall
+                    color: root.pillBatteryLow ? Theme.error : (root.pillBattery && root.pillBattery.charging ? Theme.primary : Theme.widgetTextColor)
+                }
             }
         }
     }
