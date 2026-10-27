@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -276,6 +277,8 @@ func runDaemon(args []string) error {
 			return nil, hub.Broadcast(proto.TypeClipImage, proto.ClipImage{ID: id, Mime: req.Mime, Size: len(req.Data)})
 		case "send":
 			return sendFiles(hub, store, outgoing, req)
+		case "link":
+			return sendLink(hub, store, req)
 		case "config":
 			return settings.get(), nil
 		case "set":
@@ -334,6 +337,25 @@ func dispatch(sink *notify.Sink, clipboard *clip.Clipboard, outgoing *xfer.Outgo
 				return err
 			}
 			return clipboard.Set(c.Text)
+		case proto.TypeLinkOpen:
+			l, err := proto.Decode[proto.LinkOpen](e)
+			if err != nil {
+				return err
+			}
+			if !webURL(l.URL) {
+				slog.Warn("ignoring link that isn't http(s)", "device", dev.Name, "url", l.URL)
+				return nil
+			}
+			slog.Info("opening link from phone", "device", dev.Name, "url", l.URL)
+			// Browsers that aren't running yet take a moment to start; don't
+			// hold up the connection meanwhile.
+			go func() {
+				if err := openBrowser(l.URL); err != nil {
+					slog.Warn("opening link", "err", err)
+					notify.Notice("dialog-information", "Link from "+dev.Name, l.URL)
+				}
+			}()
+			return nil
 		case proto.TypeFileDone:
 			d, err := proto.Decode[proto.FileDone](e)
 			if err != nil {
@@ -454,6 +476,50 @@ func sendFiles(hub *conn.Hub, store *pair.Store, outgoing *xfer.Outgoing, req co
 		}
 	}
 	return sent, nil
+}
+
+// sendLink queues a link for one device (req.ID) or all paired devices
+// whose app opens links. Offline phones open it when they next connect.
+func sendLink(hub *conn.Hub, store *pair.Store, req control.Request) (any, error) {
+	if !webURL(req.Text) {
+		return nil, errors.New("only http:// and https:// links can be sent")
+	}
+	var devs []pair.Device
+	if req.ID != "" {
+		id, err := hub.Resolve(req.ID)
+		if err != nil {
+			return nil, err
+		}
+		d, _ := store.Get(id)
+		devs = []pair.Device{d}
+	} else {
+		devs = store.List()
+	}
+	if len(devs) == 0 {
+		return nil, errors.New("no paired devices")
+	}
+	var sent, old []string
+	for _, d := range devs {
+		if !slices.Contains(d.Features, proto.FeatureLinkOpen) {
+			old = append(old, d.Name)
+			continue
+		}
+		if err := hub.Send(d.ID, proto.TypeLinkOpen, proto.LinkOpen{URL: req.Text}); err != nil {
+			return sent, err
+		}
+		sent = append(sent, d.Name)
+	}
+	if len(old) > 0 {
+		return sent, fmt.Errorf("%s can't open links; update the app", strings.Join(old, ", "))
+	}
+	return sent, nil
+}
+
+// webURL reports whether s is an absolute http or https URL, the only kind
+// passed to a browser: other schemes could open local files or programs.
+func webURL(s string) bool {
+	u, err := url.Parse(s)
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
 }
 
 const offerMaxAge = 7 * 24 * time.Hour

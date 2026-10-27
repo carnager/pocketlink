@@ -90,6 +90,7 @@ pocketlink status         # paired devices, connection state, queued frames
 pocketlink unpair NAME
 wl-paste | pocketlink clip
 pocketlink send [-to NAME] FILE|FOLDER...
+pocketlink link [-to NAME] URL
 ```
 
 Several files, or folders, go as a single tar stream that the phone unpacks
@@ -104,6 +105,14 @@ a copied image lands on the phone's clipboard, ready to paste. "Send
 clipboard" on the phone (tile, notification or app) sends images too.
 Selections that password managers mark with `x-kde-passwordManagerHint` are
 skipped.
+
+`pocketlink link URL` opens a link in the phone's default browser; on the
+phone, share a link with *Open on desktop* to open it in the desktop's.
+Either way, if the other side isn't reachable, the link waits and opens once
+it connects. Only `http` and `https` links are sent or opened. Android lets
+an app in the background open a browser only with *Display over other apps*;
+without it, a link that arrives while the app isn't in front shows up as a
+notification to tap (*Links from computers* in the app's settings).
 
 `pocketlink settings` (or *pocketlink settings* in your app launcher) opens a
 settings page in the browser: your phones, pairing with the QR code on the
@@ -196,7 +205,7 @@ runs `pocketlink` from `PATH` (set a different binary in the plugin settings).
 go build -o bin/ ./cmd/...
 bin/pocketlink-sim pair "$(bin/pocketlink pair | grep ^pocketlink://)"
 bin/pocketlink-sim run    # then type: "title | body", "/rm sim-1", "/clip text",
-                      #   "/send FILE", "/sendcut FILE BYTES"
+                      #   "/link URL", "/send FILE", "/sendcut FILE BYTES"
 ```
 
 ## Layout

@@ -38,6 +38,9 @@ commands:
   send [-to DEV] [-notify] FILE|FOLDER...
                     send files and folders to a phone (default: all paired
                     phones); -notify reports the result as a notification
+  link [-to DEV] [-notify] URL
+                    open a link in a phone's browser (default: all paired
+                    phones); offline phones open it when they connect
   settings [-print]  open the settings page in the browser (or print its address)
   config [-json] [KEY VALUE]
                     show settings, or change one (name, listen, downloads,
@@ -86,6 +89,8 @@ func main() {
 		err = runClip(args)
 	case "send":
 		err = runSend(args)
+	case "link":
+		err = runLink(args)
 	case "config":
 		err = runConfig(args)
 	case "settings":
@@ -335,6 +340,37 @@ func notifySent(to string, sent []string, err error) {
 	if nerr != nil {
 		fmt.Fprintln(os.Stderr, "pocketlink: notification:", nerr)
 	}
+}
+
+func runLink(args []string) error {
+	fs := flag.NewFlagSet("link", flag.ExitOnError)
+	to := fs.String("to", "", "device ID prefix or name")
+	notice := fs.Bool("notify", false, "report the result as a desktop notification")
+	fs.Parse(args)
+	if fs.NArg() != 1 {
+		return errors.New("usage: pocketlink link [-to DEVICE] [-notify] URL")
+	}
+	link := strings.TrimSpace(fs.Arg(0))
+	var sent []string
+	err := control.Call(control.Request{Cmd: "link", ID: *to, Text: link}, &sent)
+	if *notice {
+		var nerr error
+		switch {
+		case err != nil && len(sent) > 0:
+			nerr = notify.Notice("dialog-warning", "Sent the link only to "+strings.Join(sent, ", "), err.Error())
+		case err != nil:
+			nerr = notify.Notice("dialog-error", "Could not send the link", err.Error())
+		default:
+			nerr = notify.Notice("web-browser", "Opening on "+strings.Join(sent, ", "), link)
+		}
+		if nerr != nil {
+			fmt.Fprintln(os.Stderr, "pocketlink: notification:", nerr)
+		}
+	}
+	for _, name := range sent {
+		fmt.Println("sent to", name)
+	}
+	return err
 }
 
 func stdinIsTerminal() bool {

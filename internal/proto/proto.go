@@ -26,6 +26,7 @@ const (
 	TypeMediaCmd     = "media.cmd"
 	TypeCallState    = "call.state"
 	TypeCallMute     = "call.mute"
+	TypeLinkOpen     = "link.open"
 	TypeReply        = "reply"
 )
 
@@ -55,6 +56,7 @@ const (
 	FeatureFSStream      = "fs.stream"       // answers fs.readstream and fs.writestream
 	FeatureFSWriteCreate = "fs.write.create" // honours FSWrite.Create
 	FeatureFilesTar      = "files.tar"       // accepts several files or folders as one tar offer
+	FeatureLinkOpen      = "link.open"       // opens links sent with link.open
 )
 
 type Hello struct {
@@ -78,6 +80,13 @@ type NotifRemoved struct {
 
 type ClipSet struct {
 	Text string `json:"text"`
+}
+
+// LinkOpen asks the receiver to open an http or https URL in its default
+// browser. It's queued like any frame, so a link sent while the other side
+// is unreachable opens once it connects.
+type LinkOpen struct {
+	URL string `json:"url"`
 }
 
 // CallState reports a phone call. Event is "ringing" (incoming), "talking"

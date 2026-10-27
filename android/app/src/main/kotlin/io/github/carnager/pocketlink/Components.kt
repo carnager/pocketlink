@@ -2,6 +2,7 @@ package io.github.carnager.pocketlink
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.app.ActivityManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.clickable
@@ -66,6 +67,7 @@ object Notifs {
     const val TRANSFERS = "transfers"
     const val FILES = "files"
     const val MEDIA = "media"
+    const val LINKS = "links"
     const val LINK_ID = 1
 
     /**
@@ -98,8 +100,63 @@ object Notifs {
                 NotificationChannel(TRANSFERS, "Transfer progress", NotificationManager.IMPORTANCE_LOW),
                 NotificationChannel(FILES, "Finished transfers", NotificationManager.IMPORTANCE_DEFAULT),
                 NotificationChannel(MEDIA, "Media remote", NotificationManager.IMPORTANCE_LOW),
+                NotificationChannel(LINKS, "Links from computers", NotificationManager.IMPORTANCE_HIGH),
             )
         )
+    }
+}
+
+/** Opens links sent from a computer. */
+object Browser {
+    /** Whether [s] is an http or https link, the only kind sent or opened. */
+    fun isWebUrl(s: String): Boolean {
+        val u = Uri.parse(s)
+        return (u.scheme == "http" || u.scheme == "https") && !u.host.isNullOrEmpty()
+    }
+
+    /** The first http(s) link in shared text, which often has a title before it. */
+    fun find(text: String): String? =
+        Regex("""https?://\S+""", RegexOption.IGNORE_CASE).findAll(text).map { it.value }.firstOrNull(::isWebUrl)
+
+    /**
+     * Opens [url] in the default browser. Android doesn't let apps in the
+     * background start activities unless they may draw over other apps, so
+     * without that the link arrives as a notification to tap.
+     */
+    fun open(ctx: Context, computer: String, url: String) {
+        if (!isWebUrl(url)) {
+            Log.w(TAG, "ignoring link from $computer that isn't http(s)")
+            return
+        }
+        val view = Intent(Intent.ACTION_VIEW, Uri.parse(url)).addCategory(Intent.CATEGORY_BROWSABLE)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (canOpenDirectly(ctx)) {
+            try {
+                ctx.startActivity(view)
+                return
+            } catch (e: Exception) {
+                Log.w(TAG, "opening link", e)
+            }
+        }
+        val id = url.hashCode()
+        val n = Notification.Builder(ctx, Notifs.LINKS)
+            .setSmallIcon(R.drawable.ic_stat)
+            .setContentTitle("Link from $computer")
+            .setContentText(url)
+            .setContentIntent(PendingIntent.getActivity(ctx, id, view, PendingIntent.FLAG_IMMUTABLE))
+            .setAutoCancel(true)
+            .setCategory(Notification.CATEGORY_MESSAGE)
+            .build()
+        ctx.getSystemService(NotificationManager::class.java).notify(TAG_LINK, id, n)
+    }
+
+    private const val TAG_LINK = "link"
+
+    private fun canOpenDirectly(ctx: Context): Boolean {
+        if (Settings.canDrawOverlays(ctx)) return true
+        val info = ActivityManager.RunningAppProcessInfo()
+        ActivityManager.getMyMemoryState(info)
+        return info.importance <= ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
     }
 }
 
@@ -392,10 +449,25 @@ class ShareActivity : ComponentActivity() {
         }
     }
 
+    /** Started as "Open on desktop" rather than "Send to desktop". */
+    private val openLink get() = intent.component?.className?.endsWith(".OpenLinkActivity") == true
+
     private fun send(targets: List<Link>) {
         val uris = sharedUris()
         val text = intent.getStringExtra(Intent.EXTRA_TEXT)
         val where = if (targets.size == 1) targets[0].name else "${targets.size} computers"
+        if (openLink) {
+            val url = text?.let(Browser::find)
+            if (url == null) {
+                toast("No link to open")
+                return
+            }
+            Links.get(this).start()
+            targets.forEach { it.send("link.open", JSONObject().put("url", url)) }
+            // Offline computers open it once they're reachable again.
+            toast(if (targets.all { it.status == Status.CONNECTED }) "Opening on $where" else "Opens on $where once it's reachable")
+            return
+        }
         when {
             uris.isNotEmpty() -> {
                 val svc = Intent(this, LinkService::class.java)

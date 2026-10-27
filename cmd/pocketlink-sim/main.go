@@ -9,6 +9,7 @@
 //	title | text       post a notification (prints its key)
 //	/rm KEY            remove a notification
 //	/clip TEXT         set the desktop clipboard
+//	/link URL          open a link in the desktop's browser
 //	/send PATH         upload a file, resuming a previous partial upload
 //	/sendcut PATH N    upload only the first N bytes, to test resuming
 //	/call EVENT [NUMBER [NAME]] [@PHOTO]  report a phone call (ringing, talking, ended)
@@ -200,9 +201,10 @@ func (cl *client) session(c *websocket.Conn, lines <-chan string) error {
 	defer cancel()
 	defer c.CloseNow()
 
-	h := proto.Hello{Name: cl.name, Platform: "sim"}
+	// Links from the desktop are only printed.
+	h := proto.Hello{Name: cl.name, Platform: "sim", Features: []string{proto.FeatureLinkOpen}}
 	if cl.fs != nil {
-		h.Features = []string{proto.FeatureFS, proto.FeatureFSStream, proto.FeatureFSWriteCreate}
+		h.Features = append(h.Features, proto.FeatureFS, proto.FeatureFSStream, proto.FeatureFSWriteCreate)
 	}
 	hello, _ := proto.NewUnacked(proto.TypeHello, h)
 	if err := write(ctx, c, hello); err != nil {
@@ -287,6 +289,8 @@ func (cl *client) handleLine(line string, n *int) (proto.Envelope, error) {
 		return proto.Envelope{}, nil
 	case cmd == "/clip":
 		return proto.New(proto.TypeClipSet, proto.ClipSet{Text: arg})
+	case cmd == "/link":
+		return proto.New(proto.TypeLinkOpen, proto.LinkOpen{URL: arg})
 	case cmd == "/rm":
 		return proto.New(proto.TypeNotifRemoved, proto.NotifRemoved{Key: arg})
 	case cmd == "/send":

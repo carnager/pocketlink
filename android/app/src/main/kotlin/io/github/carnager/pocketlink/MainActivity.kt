@@ -54,6 +54,7 @@ import androidx.compose.material.icons.rounded.LinkOff
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.NotificationsActive
+import androidx.compose.material.icons.rounded.OpenInBrowser
 import androidx.compose.material.icons.rounded.QrCodeScanner
 import androidx.compose.material.icons.rounded.Restore
 import androidx.compose.material.icons.rounded.Search
@@ -502,6 +503,14 @@ class MainActivity : ComponentActivity() {
                 } else {
                     askCalls.launch(Calls.permissions)
                 }
+            }
+            val linksDirect = Settings.canDrawOverlays(this@MainActivity)
+            SettingRow(
+                Icons.Rounded.OpenInBrowser, "Links from computers",
+                if (linksDirect) "Open in your browser right away"
+                else "Arrive as a notification while pocketlink is in the background. Tap to open them right away (“Display over other apps”)",
+            ) {
+                startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
             }
             if (Build.VERSION.SDK_INT >= 33) {
                 SettingRow(Icons.Rounded.Tune, "Quick Settings tile", "Send the clipboard from anywhere", onClick = ::addTile)

@@ -15,6 +15,9 @@
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <uses-permission android:name="android.permission.READ_CALL_LOG" />
     <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <!-- Optional: lets links from computers open in the browser while the app
+         is in the background, instead of arriving as a notification. -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <!-- Optional, so paired computers can browse the phone's files. -->
     <uses-permission
         android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
@@ -92,6 +95,20 @@
                 <data android:mimeType="*/*" />
             </intent-filter>
         </activity>
+
+        <!-- A second share target for text: opens the link in it in the
+             computer's browser rather than copying it. -->
+        <activity-alias
+            android:name=".OpenLinkActivity"
+            android:exported="true"
+            android:label="@string/open_label"
+            android:targetActivity=".ShareActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity-alias>
 
         <!-- Android only lets the focused app read the clipboard, so sending it
              goes through this invisible activity. -->
