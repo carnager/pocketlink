@@ -32,6 +32,8 @@ PluginComponent {
     property string confirmUnpairId: ""
     property var sendTarget: null // device to send the picked file to; null for all
     property string actionDescription: ""
+    property string actionSuccess: "" // shown when the action worked, if set
+    property string linkDraft: ""
 
     readonly property string configuredBinary: String(loadPluginValue("pocketlinkBinary", "pocketlink")).trim()
     readonly property string pocketlinkBinary: configuredBinary.length > 0 ? configuredBinary : "pocketlink"
@@ -112,14 +114,16 @@ PluginComponent {
         }
     }
 
-    function runAction(args, description) {
+    function runAction(args, description, success) {
         if (actionRunner.running) {
             ToastService.showWarning("pocketlink is busy, try again");
-            return;
+            return false;
         }
         actionDescription = description;
+        actionSuccess = success || "";
         actionRunner.command = [pocketlinkBinary].concat(args);
         actionRunner.running = true;
+        return true;
     }
 
     function startPairing() {
@@ -150,6 +154,24 @@ PluginComponent {
         }
         confirmUnpairId = "";
         runAction(["unpair", device.id], "unpair " + device.name);
+    }
+
+    // Opens a link in the phones' browsers. A bare address such as
+    // example.org gets https://; phones that are offline open it once they
+    // connect.
+    function sendLink() {
+        let url = linkDraft.trim();
+        if (url.length === 0)
+            return;
+        if (!/^[a-z][a-z0-9+.-]*:/i.test(url))
+            url = "https://" + url;
+        if (!/^https?:\/\/\S+$/i.test(url)) {
+            ToastService.showError("Only http and https links can be sent");
+            return;
+        }
+        const offline = devices.some(d => !d.connected);
+        if (runAction(["link", url], "send the link", offline ? "The link opens on phones that are offline once they connect" : "Link sent"))
+            linkDraft = "";
     }
 
     function sendFileTo(device) {
@@ -342,6 +364,8 @@ PluginComponent {
                 ToastService.showError("Could not " + root.actionDescription, actionStderr.text.trim());
             } else if (actionStdout.text.indexOf("Restart the daemon") >= 0) {
                 ToastService.showInfo("Restart the pocketlink daemon to apply this change");
+            } else if (root.actionSuccess.length > 0) {
+                ToastService.showInfo(root.actionSuccess);
             }
             root.refreshStatus();
             root.refreshConfig();
@@ -708,6 +732,56 @@ PluginComponent {
                             iconName: "folder_open"
                             enabled: root.devices.length > 0
                             onClicked: root.openFiles(root.filesUrl)
+                        }
+                    }
+
+                    // A link to open in the phones' browsers.
+                    Item {
+                        width: parent.width
+                        height: Math.max(linkField.implicitHeight, 30)
+                        visible: root.devices.length > 0
+
+                        DankTextField {
+                            id: linkField
+                            anchors.left: parent.left
+                            anchors.right: linkButton.left
+                            anchors.rightMargin: Theme.spacingS
+                            anchors.verticalCenter: parent.verticalCenter
+                            placeholderText: root.devices.length > 1 ? "Link to open on all phones" : "Link to open on the phone"
+                            text: root.linkDraft
+                            onTextEdited: root.linkDraft = text
+                            onAccepted: root.sendLink()
+                        }
+
+                        Rectangle {
+                            id: linkButton
+                            readonly property bool usable: root.linkDraft.trim().length > 0
+
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 30
+                            height: 30
+                            radius: 10
+                            color: linkArea.containsMouse && usable ? Theme.widgetBaseHoverColor : Theme.surfaceContainer
+                            border.color: Theme.outline
+                            border.width: 1
+                            opacity: usable ? 1 : 0.5
+
+                            DankIcon {
+                                anchors.centerIn: parent
+                                name: "open_in_browser"
+                                size: 16
+                                color: Theme.surfaceText
+                            }
+
+                            MouseArea {
+                                id: linkArea
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                enabled: linkButton.usable
+                                cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                                onClicked: root.sendLink()
+                            }
                         }
                     }
 
