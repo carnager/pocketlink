@@ -106,8 +106,10 @@ clipboard" on the phone (tile, notification or app) sends images too.
 Selections that password managers mark with `x-kde-passwordManagerHint` are
 skipped.
 
-`pocketlink link URL` opens a link in the phone's default browser; on the
-phone, share a link with *Open on desktop* to open it in the desktop's.
+`pocketlink link URL` opens a link in the phone's default browser. On the
+phone, sharing a link to a computer opens it in the desktop's (other text
+goes to the clipboard); *Open on desktop* also picks the link out of text
+around it.
 Either way, if the other side isn't reachable, the link waits and opens once
 it connects. Only `http` and `https` links are sent or opened. Android lets
 an app in the background open a browser only with *Display over other apps*;

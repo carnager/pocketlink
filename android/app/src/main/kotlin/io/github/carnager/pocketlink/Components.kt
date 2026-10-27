@@ -456,12 +456,18 @@ class ShareActivity : ComponentActivity() {
         val uris = sharedUris()
         val text = intent.getStringExtra(Intent.EXTRA_TEXT)
         val where = if (targets.size == 1) targets[0].name else "${targets.size} computers"
-        if (openLink) {
-            val url = text?.let(Browser::find)
-            if (url == null) {
-                toast("No link to open")
-                return
-            }
+        // Text that is just a link opens in the computer's browser; "Open on
+        // desktop" also finds one in text around it.
+        val url = when {
+            uris.isNotEmpty() -> null
+            openLink -> text?.let(Browser::find)
+            else -> text?.trim()?.takeIf { t -> t.none(Char::isWhitespace) && Browser.isWebUrl(t) }
+        }
+        if (openLink && url == null) {
+            toast("No link to open")
+            return
+        }
+        if (url != null) {
             Links.get(this).start()
             targets.forEach { it.send("link.open", JSONObject().put("url", url)) }
             // Offline computers open it once they're reachable again.
