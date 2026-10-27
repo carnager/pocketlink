@@ -596,7 +596,7 @@ PluginComponent {
                             Column {
                                 anchors.left: deviceIcon.right
                                 anchors.leftMargin: Theme.spacingM
-                                anchors.right: findButton.visible ? findButton.left : (filesButton.visible ? filesButton.left : sendButton.left)
+                                anchors.right: rowButtons.left
                                 anchors.rightMargin: Theme.spacingS
                                 anchors.verticalCenter: parent.verticalCenter
                                 spacing: 2
@@ -620,126 +620,126 @@ PluginComponent {
                                 }
                             }
 
-                            Rectangle {
-                                id: findButton
-
-                                // Only a connected phone can ring.
-                                visible: modelData.connected
-                                anchors.right: filesButton.visible ? filesButton.left : sendButton.left
-                                anchors.rightMargin: Theme.spacingS
-                                anchors.verticalCenter: parent.verticalCenter
-                                width: 30
-                                height: 30
-                                radius: 10
-                                color: findArea.containsMouse ? Theme.widgetBaseHoverColor : Theme.surfaceContainer
-                                border.color: Theme.outline
-                                border.width: 1
-
-                                DankIcon {
-                                    anchors.centerIn: parent
-                                    name: "ring_volume"
-                                    size: 16
-                                    color: Theme.surfaceText
-                                }
-
-                                MouseArea {
-                                    id: findArea
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: root.findPhone(modelData)
-                                }
-                            }
-
-                            Rectangle {
-                                id: filesButton
-
-                                visible: !!modelData.files
-                                anchors.right: sendButton.left
-                                anchors.rightMargin: Theme.spacingS
-                                anchors.verticalCenter: parent.verticalCenter
-                                width: 30
-                                height: 30
-                                radius: 10
-                                color: filesArea.containsMouse && modelData.connected ? Theme.widgetBaseHoverColor : Theme.surfaceContainer
-                                border.color: Theme.outline
-                                border.width: 1
-                                opacity: modelData.connected ? 1 : 0.5
-
-                                DankIcon {
-                                    anchors.centerIn: parent
-                                    name: "folder_open"
-                                    size: 16
-                                    color: Theme.surfaceText
-                                }
-
-                                MouseArea {
-                                    id: filesArea
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                    enabled: modelData.connected
-                                    cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                                    onClicked: root.openFiles(modelData.files)
-                                }
-                            }
-
-                            Rectangle {
-                                id: sendButton
-
-                                anchors.right: unpairButton.left
-                                anchors.rightMargin: Theme.spacingS
-                                anchors.verticalCenter: parent.verticalCenter
-                                width: 30
-                                height: 30
-                                radius: 10
-                                color: sendArea.containsMouse ? Theme.widgetBaseHoverColor : Theme.surfaceContainer
-                                border.color: Theme.outline
-                                border.width: 1
-
-                                DankIcon {
-                                    anchors.centerIn: parent
-                                    name: "upload_file"
-                                    size: 16
-                                    color: Theme.surfaceText
-                                }
-
-                                MouseArea {
-                                    id: sendArea
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: root.sendFileTo(modelData)
-                                }
-                            }
-
-                            Rectangle {
-                                id: unpairButton
-
-                                readonly property bool confirming: root.confirmUnpairId === modelData.id
-
+                            // With one phone, sending files and opening its files are
+                            // the buttons below; per phone they only matter with several.
+                            Row {
+                                id: rowButtons
                                 anchors.right: parent.right
                                 anchors.rightMargin: Theme.spacingM
                                 anchors.verticalCenter: parent.verticalCenter
-                                width: confirming ? 84 : 64
-                                height: 30
-                                radius: 10
-                                color: unpairArea.containsMouse ? Theme.widgetBaseHoverColor : Theme.surfaceContainer
-                                border.color: confirming ? Theme.error : Theme.outline
-                                border.width: 1
+                                spacing: Theme.spacingS
 
-                                StyledText {
-                                    anchors.centerIn: parent
-                                    text: unpairButton.confirming ? "Confirm?" : "Unpair"
-                                    font.pixelSize: Theme.fontSizeSmall
-                                    color: unpairButton.confirming ? Theme.error : Theme.surfaceText
+                                Rectangle {
+                                    id: findButton
+
+                                    // Only a connected phone can ring.
+                                    visible: modelData.connected
+                                    width: 30
+                                    height: 30
+                                    radius: 10
+                                    color: findArea.containsMouse ? Theme.widgetBaseHoverColor : Theme.surfaceContainer
+                                    border.color: Theme.outline
+                                    border.width: 1
+
+                                    DankIcon {
+                                        anchors.centerIn: parent
+                                        name: "ring_volume"
+                                        size: 16
+                                        color: Theme.surfaceText
+                                    }
+
+                                    MouseArea {
+                                        id: findArea
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: root.findPhone(modelData)
+                                    }
                                 }
 
-                                MouseArea {
-                                    id: unpairArea
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: root.unpair(modelData)
+                                Rectangle {
+                                    id: filesButton
+
+                                    visible: !!modelData.files && root.devices.length > 1
+                                    width: 30
+                                    height: 30
+                                    radius: 10
+                                    color: filesArea.containsMouse && modelData.connected ? Theme.widgetBaseHoverColor : Theme.surfaceContainer
+                                    border.color: Theme.outline
+                                    border.width: 1
+                                    opacity: modelData.connected ? 1 : 0.5
+
+                                    DankIcon {
+                                        anchors.centerIn: parent
+                                        name: "folder_open"
+                                        size: 16
+                                        color: Theme.surfaceText
+                                    }
+
+                                    MouseArea {
+                                        id: filesArea
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        enabled: modelData.connected
+                                        cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                                        onClicked: root.openFiles(modelData.files)
+                                    }
+                                }
+
+                                Rectangle {
+                                    id: sendButton
+
+                                    visible: root.devices.length > 1
+
+                                    width: 30
+                                    height: 30
+                                    radius: 10
+                                    color: sendArea.containsMouse ? Theme.widgetBaseHoverColor : Theme.surfaceContainer
+                                    border.color: Theme.outline
+                                    border.width: 1
+
+                                    DankIcon {
+                                        anchors.centerIn: parent
+                                        name: "upload_file"
+                                        size: 16
+                                        color: Theme.surfaceText
+                                    }
+
+                                    MouseArea {
+                                        id: sendArea
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: root.sendFileTo(modelData)
+                                    }
+                                }
+
+                                Rectangle {
+                                    id: unpairButton
+
+                                    readonly property bool confirming: root.confirmUnpairId === modelData.id
+
+                                    width: confirming ? 84 : 64
+                                    height: 30
+                                    radius: 10
+                                    color: unpairArea.containsMouse ? Theme.widgetBaseHoverColor : Theme.surfaceContainer
+                                    border.color: confirming ? Theme.error : Theme.outline
+                                    border.width: 1
+
+                                    StyledText {
+                                        anchors.centerIn: parent
+                                        text: unpairButton.confirming ? "Confirm?" : "Unpair"
+                                        font.pixelSize: Theme.fontSizeSmall
+                                        color: unpairButton.confirming ? Theme.error : Theme.surfaceText
+                                    }
+
+                                    MouseArea {
+                                        id: unpairArea
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: root.unpair(modelData)
+                                    }
                                 }
                             }
                         }
@@ -774,7 +774,8 @@ PluginComponent {
                             text: "Phone files"
                             iconName: "folder_open"
                             enabled: root.devices.length > 0
-                            onClicked: root.openFiles(root.filesUrl)
+                            // One phone: straight into its folder rather than the list of phones.
+                            onClicked: root.openFiles(root.devices.length === 1 && root.devices[0].files ? root.devices[0].files : root.filesUrl)
                         }
                     }
 
