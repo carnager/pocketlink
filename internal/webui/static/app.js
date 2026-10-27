@@ -51,7 +51,8 @@ function renderDevices(devices) {
     name.textContent = d.name;
     const detail = document.createElement("div");
     detail.className = "detail";
-    detail.textContent = lastSeen(d) + (d.pending ? " · " + d.pending + " waiting to be sent" : "");
+    const battery = d.connected && d.battery ? " · Battery " + d.battery.level + "%" + (d.battery.charging ? ", charging" : "") : "";
+    detail.textContent = lastSeen(d) + battery + (d.pending ? " · " + d.pending + " waiting to be sent" : "");
     info.append(name, detail);
 
     const unpair = document.createElement("button");

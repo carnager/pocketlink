@@ -11,6 +11,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- Vibrates along with the ringing when a computer looks for the phone. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
     <!-- Optional, for call notifications on the computer. -->
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <uses-permission android:name="android.permission.READ_CALL_LOG" />
@@ -159,6 +161,10 @@
 
         <receiver
             android:name=".MediaActionReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".FindStopReceiver"
             android:exported="false" />
 
         <receiver

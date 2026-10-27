@@ -91,6 +91,7 @@ pocketlink unpair NAME
 wl-paste | pocketlink clip
 pocketlink send [-to NAME] FILE|FOLDER...
 pocketlink link [-to NAME] URL
+pocketlink find [-to NAME] [-stop]
 ```
 
 Several files, or folders, go as a single tar stream that the phone unpacks
@@ -115,6 +116,12 @@ it connects. Only `http` and `https` links are sent or opened. Android lets
 an app in the background open a browser only with *Display over other apps*;
 without it, a link that arrives while the app isn't in front shows up as a
 notification to tap (*Links from computers* in the app's settings).
+
+`pocketlink find` rings connected phones to find them: the ringtone at full
+volume, even on silent, until stopped from the phone's notification, with
+`pocketlink find -stop`, or after two minutes. It only works while the phone
+is connected, so it never rings out of the blue later. `pocketlink status`
+shows connected phones' battery.
 
 `pocketlink settings` (or *pocketlink settings* in your app launcher) opens a
 settings page in the browser: your phones, pairing with the QR code on the
@@ -186,9 +193,10 @@ ends. Volume changes use `wpctl` (PipeWire).
 
 ## DankMaterialShell plugin
 
-`contrib/dms/pocketlink` is a bar widget: connection state, pairing with an
-on-screen QR code, sending files, opening phones' files in a file manager,
-unpairing, and the download folder and clipboard settings. The file manager
+`contrib/dms/pocketlink` is a bar widget: connection state and battery,
+pairing with an on-screen QR code, sending files and links, ringing a phone
+to find it, opening phones' files in a file manager, unpairing, and the
+download folder and clipboard settings. The file manager
 is the first of Dolphin, Thunar, Nautilus, Nemo and PCManFM that's
 installed, unless you pick one in the plugin settings.
 

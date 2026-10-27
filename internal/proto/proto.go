@@ -27,6 +27,8 @@ const (
 	TypeCallState    = "call.state"
 	TypeCallMute     = "call.mute"
 	TypeLinkOpen     = "link.open"
+	TypeBattery      = "battery"
+	TypeFind         = "find"
 	TypeReply        = "reply"
 )
 
@@ -57,6 +59,7 @@ const (
 	FeatureFSWriteCreate = "fs.write.create" // honours FSWrite.Create
 	FeatureFilesTar      = "files.tar"       // accepts several files or folders as one tar offer
 	FeatureLinkOpen      = "link.open"       // opens links sent with link.open
+	FeatureFind          = "find"            // answers find requests by ringing
 )
 
 type Hello struct {
@@ -87,6 +90,20 @@ type ClipSet struct {
 // is unreachable opens once it connects.
 type LinkOpen struct {
 	URL string `json:"url"`
+}
+
+// Battery is the phone's battery, sent unacked on connecting and whenever
+// the level or charging changes; it only means something while connected.
+type Battery struct {
+	Level    int  `json:"level"` // percent
+	Charging bool `json:"charging"`
+}
+
+// Find is a live request to make the phone ring loudly, even when it's on
+// silent, so it can be found. Stop ends ringing that's going on. It's never
+// queued: a phone that rang hours later would only startle someone.
+type Find struct {
+	Stop bool `json:"stop,omitempty"`
 }
 
 // CallState reports a phone call. Event is "ringing" (incoming), "talking"

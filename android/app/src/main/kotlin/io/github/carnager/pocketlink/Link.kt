@@ -98,6 +98,7 @@ class Links private constructor(private val ctx: Context) {
             override fun onLost(n: Network) = all().forEach { it.onNetworkLost(n) }
         })
         all().forEach { it.start(initial) }
+        Battery.watch(ctx, this)
         ShareTargets.update(ctx, all())
     }
 
@@ -344,8 +345,9 @@ class Link internal constructor(private val ctx: Context, val id: String, privat
         sent.clear()
         askedFileAccess = false
         val hello = JSONObject().put("name", Links.deviceName(ctx)).put("platform", "android")
-            .put("features", JSONArray().put("fs").put("fs.watch").put("fs.stream").put("fs.write.create").put("files.tar").put("link.open"))
+            .put("features", JSONArray().put("fs").put("fs.watch").put("fs.stream").put("fs.write.create").put("files.tar").put("link.open").put("find"))
         socket.send(Proto.frame("hello", hello, acked = false).toString())
+        Battery.current(ctx)?.let { socket.send(Proto.frame("battery", it, acked = false).toString()) }
         Log.i(TAG, "connected to $name at $addr")
         setStatus(Status.CONNECTED)
         flush()
@@ -397,6 +399,9 @@ class Link internal constructor(private val ctx: Context, val id: String, privat
             val type = f.optString("type")
             if (type.startsWith("fs.")) {
                 PhoneFs.serve(ctx, socket, fsWatch, ::fileAccessWanted, target, req, type, body, payload)
+            } else if (type == "find") {
+                if (body.optBoolean("stop")) FindPhone.stop(ctx) else FindPhone.ring(ctx, name)
+                socket.send(JSONObject().put("v", Proto.VERSION).put("type", "reply").put("ref", req).put("body", JSONObject()).toString())
             } else {
                 val err = JSONObject().put("code", "unsupported").put("message", type)
                 socket.send(JSONObject().put("v", Proto.VERSION).put("type", "reply").put("ref", req).put("error", err).toString())

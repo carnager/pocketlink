@@ -23,6 +23,7 @@ import (
 	"github.com/carnager/pocketlink/internal/control"
 	"github.com/carnager/pocketlink/internal/notify"
 	"github.com/carnager/pocketlink/internal/pair"
+	"github.com/carnager/pocketlink/internal/proto"
 )
 
 const usage = `usage: pocketlink <command> [args]
@@ -41,6 +42,9 @@ commands:
   link [-to DEV] [-notify] URL
                     open a link in a phone's browser (default: all paired
                     phones); offline phones open it when they connect
+  find [-to DEV] [-stop]
+                    make a phone ring loudly, even on silent (default: all
+                    connected phones); -stop ends it
   settings [-print]  open the settings page in the browser (or print its address)
   config [-json] [KEY VALUE]
                     show settings, or change one (name, listen, downloads,
@@ -91,6 +95,8 @@ func main() {
 		err = runSend(args)
 	case "link":
 		err = runLink(args)
+	case "find":
+		err = runFind(args)
 	case "config":
 		err = runConfig(args)
 	case "settings":
@@ -162,7 +168,7 @@ func runStatus(args []string) error {
 		return nil
 	}
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "ID\tNAME\tSTATE\tPENDING\tLAST SEEN")
+	fmt.Fprintln(tw, "ID\tNAME\tSTATE\tBATTERY\tPENDING\tLAST SEEN")
 	for _, d := range r.Devices {
 		state, seen := "offline", "never"
 		if d.Connected {
@@ -170,9 +176,41 @@ func runStatus(args []string) error {
 		} else if !d.LastSeen.IsZero() {
 			seen = d.LastSeen.Format("2006-01-02 15:04")
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%s\n", pair.ShortID(d.ID), d.Name, state, d.Pending, seen)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\t%s\n", pair.ShortID(d.ID), d.Name, state, batteryText(d.Battery), d.Pending, seen)
 	}
 	return tw.Flush()
+}
+
+func batteryText(b *proto.Battery) string {
+	switch {
+	case b == nil:
+		return "-"
+	case b.Charging:
+		return fmt.Sprintf("%d%%, charging", b.Level)
+	default:
+		return fmt.Sprintf("%d%%", b.Level)
+	}
+}
+
+func runFind(args []string) error {
+	fs := flag.NewFlagSet("find", flag.ExitOnError)
+	to := fs.String("to", "", "device ID prefix or name")
+	stop := fs.Bool("stop", false, "stop the ringing")
+	fs.Parse(args)
+	req := control.Request{Cmd: "find", ID: *to}
+	if *stop {
+		req.Value = "stop"
+	}
+	var rang []string
+	err := control.Call(req, &rang)
+	for _, name := range rang {
+		if *stop {
+			fmt.Println("stopped", name)
+		} else {
+			fmt.Println("ringing", name)
+		}
+	}
+	return err
 }
 
 func runSettings(args []string) error {

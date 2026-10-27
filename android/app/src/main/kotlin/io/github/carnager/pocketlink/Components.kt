@@ -68,6 +68,7 @@ object Notifs {
     const val FILES = "files"
     const val MEDIA = "media"
     const val LINKS = "links"
+    const val FIND = "find"
     const val LINK_ID = 1
 
     /**
@@ -101,6 +102,8 @@ object Notifs {
                 NotificationChannel(FILES, "Finished transfers", NotificationManager.IMPORTANCE_DEFAULT),
                 NotificationChannel(MEDIA, "Media remote", NotificationManager.IMPORTANCE_LOW),
                 NotificationChannel(LINKS, "Links from computers", NotificationManager.IMPORTANCE_HIGH),
+                // The ringing itself is played on the alarm stream, not by the channel.
+                NotificationChannel(FIND, "Find my phone", NotificationManager.IMPORTANCE_HIGH).apply { setSound(null, null) },
             )
         )
     }

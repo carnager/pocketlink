@@ -121,10 +121,11 @@ func runDaemon(args []string) error {
 		return fmt.Errorf("media: %w", err)
 	}
 
+	batteries := &batteryLevels{levels: map[string]proto.Battery{}}
 	pairing := &pair.Pairing{}
 	var phoneCalls *calls // set below, before any connection is accepted
 	var files *davfs.Server
-	hub = conn.NewHub(ctx, *name, store, pairing, filepath.Join(stateDir, "queue"), dispatch(sink, clipboard, outgoing, players, &phoneCalls, &files))
+	hub = conn.NewHub(ctx, *name, store, pairing, filepath.Join(stateDir, "queue"), dispatch(sink, clipboard, outgoing, players, batteries, &phoneCalls, &files))
 	files = davfs.New(hub, store)
 	// A phone that just connected (or restarted) needs the current state,
 	// which may not have changed since it last got it.
@@ -247,9 +248,12 @@ func runDaemon(args []string) error {
 			return pairReply{URI: offer.URI(), Expires: exp}, nil
 		case "status":
 			devs := hub.Status()
-			if filesURL != "" {
-				for i := range devs {
+			for i := range devs {
+				if filesURL != "" {
 					devs[i].Files = strings.TrimSuffix(filesURL, "/") + files.Folder(devs[i].ID)
+				}
+				if devs[i].Connected {
+					devs[i].Battery = batteries.get(devs[i].ID)
 				}
 			}
 			return statusReply{Name: *name, Fingerprint: fp, Listen: *listen, Files: filesURL, Devices: devs}, nil
@@ -279,6 +283,8 @@ func runDaemon(args []string) error {
 			return sendFiles(hub, store, outgoing, req)
 		case "link":
 			return sendLink(hub, store, req)
+		case "find":
+			return findPhones(ctx, hub, store, req)
 		case "config":
 			return settings.get(), nil
 		case "set":
@@ -316,7 +322,7 @@ func runDaemon(args []string) error {
 	return srv.Shutdown(shutdownCtx)
 }
 
-func dispatch(sink *notify.Sink, clipboard *clip.Clipboard, outgoing *xfer.Outgoing, players *media.Watcher, phoneCalls **calls, files **davfs.Server) conn.Handler {
+func dispatch(sink *notify.Sink, clipboard *clip.Clipboard, outgoing *xfer.Outgoing, players *media.Watcher, batteries *batteryLevels, phoneCalls **calls, files **davfs.Server) conn.Handler {
 	return func(dev pair.Device, e proto.Envelope) error {
 		switch e.Type {
 		case proto.TypeNotifPosted:
@@ -337,6 +343,13 @@ func dispatch(sink *notify.Sink, clipboard *clip.Clipboard, outgoing *xfer.Outgo
 				return err
 			}
 			return clipboard.Set(c.Text)
+		case proto.TypeBattery:
+			b, err := proto.Decode[proto.Battery](e)
+			if err != nil {
+				return err
+			}
+			batteries.set(dev.ID, b)
+			return nil
 		case proto.TypeLinkOpen:
 			l, err := proto.Decode[proto.LinkOpen](e)
 			if err != nil {
@@ -513,6 +526,70 @@ func sendLink(hub *conn.Hub, store *pair.Store, req control.Request) (any, error
 		return sent, fmt.Errorf("%s can't open links; update the app", strings.Join(old, ", "))
 	}
 	return sent, nil
+}
+
+// findPhones rings one device (req.ID) or every connected one, or with
+// req.Value "stop" ends the ringing. Only connected phones can ring.
+func findPhones(ctx context.Context, hub *conn.Hub, store *pair.Store, req control.Request) (any, error) {
+	var devs []pair.Device
+	if req.ID != "" {
+		id, err := hub.Resolve(req.ID)
+		if err != nil {
+			return nil, err
+		}
+		d, _ := store.Get(id)
+		devs = []pair.Device{d}
+	} else {
+		for _, d := range store.List() {
+			if hub.Connected(d.ID) {
+				devs = append(devs, d)
+			}
+		}
+		if len(devs) == 0 {
+			return nil, errors.New("no phone is connected")
+		}
+	}
+	var rang []string
+	var errs []error
+	for _, d := range devs {
+		switch {
+		case !hub.Connected(d.ID):
+			errs = append(errs, fmt.Errorf("%s is not connected", d.Name))
+		case !hub.Supports(d.ID, proto.FeatureFind):
+			errs = append(errs, fmt.Errorf("%s can't ring; update the app", d.Name))
+		default:
+			cctx, cancel := context.WithTimeout(ctx, 4*time.Second)
+			_, err := hub.Call(cctx, d.ID, proto.TypeFind, proto.Find{Stop: req.Value == "stop"}, nil)
+			cancel()
+			if err != nil {
+				errs = append(errs, fmt.Errorf("%s: %w", d.Name, err))
+			} else {
+				rang = append(rang, d.Name)
+			}
+		}
+	}
+	return rang, errors.Join(errs...)
+}
+
+// batteryLevels holds what each phone last said about its battery.
+type batteryLevels struct {
+	mu     sync.Mutex
+	levels map[string]proto.Battery
+}
+
+func (b *batteryLevels) set(id string, v proto.Battery) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.levels[id] = v
+}
+
+func (b *batteryLevels) get(id string) *proto.Battery {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if v, ok := b.levels[id]; ok {
+		return &v
+	}
+	return nil
 }
 
 // webURL reports whether s is an absolute http or https URL, the only kind

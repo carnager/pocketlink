@@ -76,6 +76,17 @@ PluginComponent {
         return isNaN(t) ? 0 : t;
     }
 
+    function batteryText(device) {
+        const b = device.battery;
+        if (!device.connected || !b)
+            return "";
+        return " · " + b.level + "%" + (b.charging ? ", charging" : "");
+    }
+
+    function findPhone(device) {
+        runAction(["find", "-to", device.id], "ring " + device.name, "Ringing " + device.name + " · stop it on the phone");
+    }
+
     function lastSeenText(device) {
         const t = parseTime(device.last_seen);
         if (t === 0)
@@ -585,7 +596,7 @@ PluginComponent {
                             Column {
                                 anchors.left: deviceIcon.right
                                 anchors.leftMargin: Theme.spacingM
-                                anchors.right: filesButton.visible ? filesButton.left : sendButton.left
+                                anchors.right: findButton.visible ? findButton.left : (filesButton.visible ? filesButton.left : sendButton.left)
                                 anchors.rightMargin: Theme.spacingS
                                 anchors.verticalCenter: parent.verticalCenter
                                 spacing: 2
@@ -601,10 +612,42 @@ PluginComponent {
                                 StyledText {
                                     width: parent.width
                                     text: (modelData.connected ? "Connected" : root.lastSeenText(modelData))
+                                        + root.batteryText(modelData)
                                         + (modelData.pending > 0 ? " · " + modelData.pending + " queued" : "")
                                     font.pixelSize: Theme.fontSizeSmall
                                     color: Theme.surfaceVariantText
                                     elide: Text.ElideRight
+                                }
+                            }
+
+                            Rectangle {
+                                id: findButton
+
+                                // Only a connected phone can ring.
+                                visible: modelData.connected
+                                anchors.right: filesButton.visible ? filesButton.left : sendButton.left
+                                anchors.rightMargin: Theme.spacingS
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: 30
+                                height: 30
+                                radius: 10
+                                color: findArea.containsMouse ? Theme.widgetBaseHoverColor : Theme.surfaceContainer
+                                border.color: Theme.outline
+                                border.width: 1
+
+                                DankIcon {
+                                    anchors.centerIn: parent
+                                    name: "ring_volume"
+                                    size: 16
+                                    color: Theme.surfaceText
+                                }
+
+                                MouseArea {
+                                    id: findArea
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: root.findPhone(modelData)
                                 }
                             }
 

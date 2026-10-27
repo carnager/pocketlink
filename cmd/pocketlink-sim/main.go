@@ -10,6 +10,7 @@
 //	/rm KEY            remove a notification
 //	/clip TEXT         set the desktop clipboard
 //	/link URL          open a link in the desktop's browser
+//	/battery N [c]     report the battery at N percent (c: charging)
 //	/send PATH         upload a file, resuming a previous partial upload
 //	/sendcut PATH N    upload only the first N bytes, to test resuming
 //	/call EVENT [NUMBER [NAME]] [@PHOTO]  report a phone call (ringing, talking, ended)
@@ -201,8 +202,8 @@ func (cl *client) session(c *websocket.Conn, lines <-chan string) error {
 	defer cancel()
 	defer c.CloseNow()
 
-	// Links from the desktop are only printed.
-	h := proto.Hello{Name: cl.name, Platform: "sim", Features: []string{proto.FeatureLinkOpen}}
+	// Links from the desktop are only printed, and find requests answered.
+	h := proto.Hello{Name: cl.name, Platform: "sim", Features: []string{proto.FeatureLinkOpen, proto.FeatureFind}}
 	if cl.fs != nil {
 		h.Features = append(h.Features, proto.FeatureFS, proto.FeatureFSStream, proto.FeatureFSWriteCreate)
 	}
@@ -291,6 +292,13 @@ func (cl *client) handleLine(line string, n *int) (proto.Envelope, error) {
 		return proto.New(proto.TypeClipSet, proto.ClipSet{Text: arg})
 	case cmd == "/link":
 		return proto.New(proto.TypeLinkOpen, proto.LinkOpen{URL: arg})
+	case cmd == "/battery":
+		level, rest, _ := strings.Cut(arg, " ")
+		n, err := strconv.Atoi(level)
+		if err != nil {
+			return proto.Envelope{}, fmt.Errorf("usage: /battery PERCENT [c]")
+		}
+		return proto.NewUnacked(proto.TypeBattery, proto.Battery{Level: n, Charging: rest == "c"})
 	case cmd == "/rm":
 		return proto.New(proto.TypeNotifRemoved, proto.NotifRemoved{Key: arg})
 	case cmd == "/send":
@@ -484,6 +492,8 @@ func (cl *client) answer(ctx context.Context, c *websocket.Conn, e proto.Envelop
 		r = cl.stream(e)
 	} else if cl.fs != nil && strings.HasPrefix(e.Type, "fs.") {
 		r, out = cl.fs.Handle(e, payload)
+	} else if e.Type == proto.TypeFind {
+		r, _ = proto.Reply(e.Req, struct{}{})
 	} else {
 		r = proto.ErrorReply(e.Req, proto.ErrUnsupported, e.Type)
 	}

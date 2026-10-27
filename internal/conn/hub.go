@@ -233,14 +233,15 @@ func (h *Hub) Resolve(ref string) (string, error) {
 }
 
 type DeviceStatus struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Connected bool      `json:"connected"`
-	Addr      string    `json:"addr,omitempty"`
-	Pending   int       `json:"pending"`
-	LastSeen  time.Time `json:"last_seen,omitzero"`
-	Files     string    `json:"files,omitempty"` // WebDAV URL of its files, filled in by the daemon
-	Features  []string  `json:"features,omitempty"`
+	ID        string         `json:"id"`
+	Name      string         `json:"name"`
+	Connected bool           `json:"connected"`
+	Addr      string         `json:"addr,omitempty"`
+	Pending   int            `json:"pending"`
+	LastSeen  time.Time      `json:"last_seen,omitzero"`
+	Files     string         `json:"files,omitempty"` // WebDAV URL of its files, filled in by the daemon
+	Features  []string       `json:"features,omitempty"`
+	Battery   *proto.Battery `json:"battery,omitempty"` // while connected, filled in by the daemon
 }
 
 func (h *Hub) Status() []DeviceStatus {
