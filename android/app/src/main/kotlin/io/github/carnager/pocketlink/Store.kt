@@ -202,8 +202,32 @@ class Outbox(file: File) : JsonList(file) {
             }
         }
         items.add(f)
-        while (items.size > MAX) items.removeAt(0)
+        // Notifications and everything else (links, the clipboard, …) are
+        // capped separately, so a day of notifications can't push out a link
+        // sent in the morning.
+        dropStale(System.currentTimeMillis())
+        trim(MAX_NOTIFS) { isNotif(it) }
+        trim(MAX_OTHER) { !isNotif(it) }
         save()
+    }
+
+    /** Removes the oldest frames matching [which] beyond [max]. */
+    private fun trim(max: Int, which: (JSONObject) -> Boolean) {
+        var over = items.count(which) - max
+        val it = items.iterator()
+        while (over > 0 && it.hasNext()) {
+            if (which(it.next())) {
+                it.remove()
+                over--
+            }
+        }
+    }
+
+    private fun isNotif(f: JSONObject) = f.getString("type").startsWith("notif.")
+
+    /** Drops notifications too old to be worth showing; true if any were. */
+    private fun dropStale(now: Long) = items.removeAll {
+        it.getString("type") == "notif.posted" && now - it.getJSONObject("body").optLong("time") > STALE_MS
     }
 
     fun ack(id: String) {
@@ -212,18 +236,13 @@ class Outbox(file: File) : JsonList(file) {
 
     /** Pending frames, minus notifications too old to be worth showing. */
     fun pending(now: Long): List<JSONObject> {
-        val stale = items.filter {
-            it.getString("type") == "notif.posted" && now - it.getJSONObject("body").optLong("time") > STALE_MS
-        }
-        if (stale.isNotEmpty()) {
-            items.removeAll(stale)
-            save()
-        }
+        if (dropStale(now)) save()
         return items.toList()
     }
 
     private companion object {
-        const val MAX = 200
+        const val MAX_NOTIFS = 200
+        const val MAX_OTHER = 500
         const val STALE_MS = 60 * 60 * 1000L
     }
 }
