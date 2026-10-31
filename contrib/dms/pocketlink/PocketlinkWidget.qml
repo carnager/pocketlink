@@ -471,8 +471,8 @@ PluginComponent {
 
     horizontalBarPill: Component {
         Rectangle {
-            width: Math.max(24, pillRow.implicitWidth + (root.pillBattery ? 12 : 0))
-            height: 24
+            implicitWidth: Math.max(24, pillRow.implicitWidth + (root.pillBattery ? 12 : 0))
+            implicitHeight: 24
             radius: 12
             color: root.pluginPopoutVisible ? Theme.widgetBaseHoverColor : "transparent"
 
