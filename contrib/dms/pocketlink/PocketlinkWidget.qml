@@ -34,6 +34,8 @@ PluginComponent {
     property string actionDescription: ""
     property string actionSuccess: "" // shown when the action worked, if set
     property string linkDraft: ""
+    property string lastSentLink: "" // so the clipboard doesn't offer it again
+    property bool settingsOpen: false
 
     readonly property string configuredBinary: String(loadPluginValue("pocketlinkBinary", "pocketlink")).trim()
     readonly property string pocketlinkBinary: configuredBinary.length > 0 ? configuredBinary : "pocketlink"
@@ -54,7 +56,7 @@ PluginComponent {
         }
         return low;
     }
-    readonly property bool pillBatteryLow: pillBattery !== null && pillBattery.level <= 15 && !pillBattery.charging
+    readonly property bool pillBatteryLow: batteryLow(pillBattery)
     readonly property string pillIconName: connectedCount > 0 ? "phonelink" : "phonelink_off"
     readonly property string summaryText: {
         if (statusError.length > 0)
@@ -62,8 +64,10 @@ PluginComponent {
         if (!status)
             return "Loading…";
         if (devices.length === 0)
-            return status.name + " · no phone paired";
-        return status.name + " · " + connectedCount + " of " + devices.length + " connected";
+            return "On " + status.name + " · no phone paired yet";
+        if (devices.length === 1)
+            return "On " + status.name;
+        return "On " + status.name + " · " + connectedCount + " of " + devices.length + " connected";
     }
 
     function loadPluginValue(key, fallback) {
@@ -86,11 +90,16 @@ PluginComponent {
         return isNaN(t) ? 0 : t;
     }
 
-    function batteryText(device) {
-        const b = device.battery;
-        if (!device.connected || !b)
-            return "";
-        return " · " + b.level + "%" + (b.charging ? ", charging" : "");
+    function batteryIcon(b) {
+        if (b.charging)
+            return "battery_charging_full";
+        if (b.level >= 95)
+            return "battery_full";
+        return "battery_" + Math.round(b.level / 100 * 6) + "_bar";
+    }
+
+    function batteryLow(b) {
+        return !!b && b.level <= 15 && !b.charging;
     }
 
     function findPhone(device) {
@@ -191,8 +200,16 @@ PluginComponent {
             return;
         }
         const offline = devices.some(d => !d.connected);
-        if (runAction(["link", url], "send the link", offline ? "The link opens on phones that are offline once they connect" : "Link sent"))
+        if (runAction(["link", url], "send the link", offline ? "The link opens on phones that are offline once they connect" : "Link sent")) {
+            lastSentLink = linkDraft.trim();
             linkDraft = "";
+        }
+    }
+
+    // Offers a link from the clipboard when the field is empty.
+    function pasteLink() {
+        if (linkDraft.length === 0 && devices.length > 0 && !clipboardRunner.running)
+            clipboardRunner.running = true;
     }
 
     function sendFileTo(device) {
@@ -394,6 +411,21 @@ PluginComponent {
     }
 
     Process {
+        id: clipboardRunner
+        running: false
+        // Text only: an image in the clipboard would come out as bytes.
+        command: ["wl-paste", "--no-newline", "--type", "text"]
+
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const t = text.trim();
+                if (root.linkDraft.length === 0 && t !== root.lastSentLink && t.length < 4096 && /^https?:\/\/\S+$/i.test(t))
+                    root.linkDraft = t;
+            }
+        }
+    }
+
+    Process {
         id: filesRunner
         running: false
 
@@ -555,7 +587,7 @@ PluginComponent {
             property var parentPopout: null
 
             implicitWidth: root.popoutWidth
-            implicitHeight: Math.min(contentColumn.implicitHeight + Theme.spacingM * 2, 820)
+            implicitHeight: Math.min(contentColumn.implicitHeight + Theme.spacingL * 2, 820)
 
             Connections {
                 target: popoutRoot.parentPopout
@@ -564,6 +596,7 @@ PluginComponent {
                     if (root.pluginPopoutVisible) {
                         root.refreshStatus();
                         root.refreshConfig();
+                        root.pasteLink();
                     } else {
                         root.confirmUnpairId = "";
                     }
@@ -580,7 +613,7 @@ PluginComponent {
 
             Flickable {
                 anchors.fill: parent
-                anchors.margins: Theme.spacingM
+                anchors.margins: Theme.spacingL
                 contentWidth: width
                 contentHeight: contentColumn.implicitHeight
                 clip: true
@@ -590,21 +623,48 @@ PluginComponent {
                     id: contentColumn
 
                     width: parent.width
-                    spacing: Theme.spacingS
+                    spacing: Theme.spacingM
 
-                    StyledText {
+                    // Header: what this computer is called, and pairing.
+                    Item {
                         width: parent.width
-                        text: "pocketlink"
-                        font.pixelSize: Theme.fontSizeLarge
-                        font.weight: Font.Bold
-                        color: Theme.surfaceText
-                    }
+                        height: Math.max(headerText.implicitHeight, pairButton.height)
 
-                    StyledText {
-                        width: parent.width
-                        text: root.summaryText
-                        font.pixelSize: Theme.fontSizeSmall
-                        color: Theme.surfaceVariantText
+                        Column {
+                            id: headerText
+                            anchors.left: parent.left
+                            anchors.right: pairButton.left
+                            anchors.rightMargin: Theme.spacingS
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 2
+
+                            StyledText {
+                                width: parent.width
+                                text: "pocketlink"
+                                font.pixelSize: Theme.fontSizeLarge
+                                font.weight: Font.Medium
+                                color: Theme.surfaceText
+                            }
+
+                            StyledText {
+                                width: parent.width
+                                text: root.summaryText
+                                font.pixelSize: Theme.fontSizeSmall
+                                color: Theme.surfaceVariantText
+                                elide: Text.ElideRight
+                            }
+                        }
+
+                        DankActionButton {
+                            id: pairButton
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            iconName: root.pairing ? "close" : "qr_code_2"
+                            iconColor: Theme.surfaceText
+                            tooltipText: root.pairing ? "Cancel pairing" : "Pair a phone"
+                            enabled: root.statusError.length === 0
+                            onClicked: root.pairing ? root.stopPairing() : root.startPairing()
+                        }
                     }
 
                     StyledText {
@@ -616,270 +676,10 @@ PluginComponent {
                         wrapMode: Text.WordWrap
                     }
 
-                    Repeater {
-                        model: root.devices
-
-                        delegate: Rectangle {
-                            required property var modelData
-
-                            width: contentColumn.width
-                            height: 56
-                            radius: 12
-                            color: Theme.surfaceContainerHigh
-                            border.color: Theme.outline
-                            border.width: 1
-
-                            DankIcon {
-                                id: deviceIcon
-                                anchors.left: parent.left
-                                anchors.leftMargin: Theme.spacingM
-                                anchors.verticalCenter: parent.verticalCenter
-                                name: "smartphone"
-                                size: 20
-                                color: modelData.connected ? Theme.primary : Theme.surfaceVariantText
-                            }
-
-                            Column {
-                                anchors.left: deviceIcon.right
-                                anchors.leftMargin: Theme.spacingM
-                                anchors.right: rowButtons.left
-                                anchors.rightMargin: Theme.spacingS
-                                anchors.verticalCenter: parent.verticalCenter
-                                spacing: 2
-
-                                StyledText {
-                                    width: parent.width
-                                    text: modelData.name
-                                    font.pixelSize: Theme.fontSizeMedium
-                                    color: Theme.surfaceText
-                                    elide: Text.ElideRight
-                                }
-
-                                StyledText {
-                                    width: parent.width
-                                    text: (modelData.connected ? "Connected" : root.lastSeenText(modelData))
-                                        + root.batteryText(modelData)
-                                        + (modelData.pending > 0 ? " · " + modelData.pending + " queued" : "")
-                                    font.pixelSize: Theme.fontSizeSmall
-                                    color: Theme.surfaceVariantText
-                                    elide: Text.ElideRight
-                                }
-                            }
-
-                            // With one phone, sending files and opening its files are
-                            // the buttons below; per phone they only matter with several.
-                            Row {
-                                id: rowButtons
-                                anchors.right: parent.right
-                                anchors.rightMargin: Theme.spacingM
-                                anchors.verticalCenter: parent.verticalCenter
-                                spacing: Theme.spacingS
-
-                                Rectangle {
-                                    id: findButton
-
-                                    // Only a connected phone can ring.
-                                    visible: modelData.connected
-                                    width: 30
-                                    height: 30
-                                    radius: 10
-                                    color: findArea.containsMouse ? Theme.widgetBaseHoverColor : Theme.surfaceContainer
-                                    border.color: Theme.outline
-                                    border.width: 1
-
-                                    DankIcon {
-                                        anchors.centerIn: parent
-                                        name: "ring_volume"
-                                        size: 16
-                                        color: Theme.surfaceText
-                                    }
-
-                                    MouseArea {
-                                        id: findArea
-                                        anchors.fill: parent
-                                        hoverEnabled: true
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: root.findPhone(modelData)
-                                    }
-                                }
-
-                                Rectangle {
-                                    id: filesButton
-
-                                    visible: !!modelData.files && root.devices.length > 1
-                                    width: 30
-                                    height: 30
-                                    radius: 10
-                                    color: filesArea.containsMouse && modelData.connected ? Theme.widgetBaseHoverColor : Theme.surfaceContainer
-                                    border.color: Theme.outline
-                                    border.width: 1
-                                    opacity: modelData.connected ? 1 : 0.5
-
-                                    DankIcon {
-                                        anchors.centerIn: parent
-                                        name: "folder_open"
-                                        size: 16
-                                        color: Theme.surfaceText
-                                    }
-
-                                    MouseArea {
-                                        id: filesArea
-                                        anchors.fill: parent
-                                        hoverEnabled: true
-                                        enabled: modelData.connected
-                                        cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                                        onClicked: root.openFiles(modelData.files)
-                                    }
-                                }
-
-                                Rectangle {
-                                    id: sendButton
-
-                                    visible: root.devices.length > 1
-
-                                    width: 30
-                                    height: 30
-                                    radius: 10
-                                    color: sendArea.containsMouse ? Theme.widgetBaseHoverColor : Theme.surfaceContainer
-                                    border.color: Theme.outline
-                                    border.width: 1
-
-                                    DankIcon {
-                                        anchors.centerIn: parent
-                                        name: "upload_file"
-                                        size: 16
-                                        color: Theme.surfaceText
-                                    }
-
-                                    MouseArea {
-                                        id: sendArea
-                                        anchors.fill: parent
-                                        hoverEnabled: true
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: root.sendFileTo(modelData)
-                                    }
-                                }
-
-                                Rectangle {
-                                    id: unpairButton
-
-                                    readonly property bool confirming: root.confirmUnpairId === modelData.id
-
-                                    width: confirming ? 84 : 64
-                                    height: 30
-                                    radius: 10
-                                    color: unpairArea.containsMouse ? Theme.widgetBaseHoverColor : Theme.surfaceContainer
-                                    border.color: confirming ? Theme.error : Theme.outline
-                                    border.width: 1
-
-                                    StyledText {
-                                        anchors.centerIn: parent
-                                        text: unpairButton.confirming ? "Confirm?" : "Unpair"
-                                        font.pixelSize: Theme.fontSizeSmall
-                                        color: unpairButton.confirming ? Theme.error : Theme.surfaceText
-                                    }
-
-                                    MouseArea {
-                                        id: unpairArea
-                                        anchors.fill: parent
-                                        hoverEnabled: true
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: root.unpair(modelData)
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    Row {
-                        id: actionRow
-                        readonly property int buttons: root.filesUrl.length > 0 ? 3 : 2
-
-                        width: parent.width
-                        spacing: Theme.spacingS
-
-                        DankButton {
-                            width: (parent.width - Theme.spacingS * (actionRow.buttons - 1)) / actionRow.buttons
-                            text: root.pairing ? "Cancel" : "Pair phone"
-                            iconName: root.pairing ? "close" : "qr_code_2"
-                            enabled: root.statusError.length === 0
-                            onClicked: root.pairing ? root.stopPairing() : root.startPairing()
-                        }
-
-                        DankButton {
-                            width: (parent.width - Theme.spacingS * (actionRow.buttons - 1)) / actionRow.buttons
-                            text: root.devices.length > 1 ? "Send to all" : "Send file"
-                            iconName: "upload_file"
-                            enabled: root.devices.length > 0
-                            onClicked: root.sendFileTo(null)
-                        }
-
-                        DankButton {
-                            visible: root.filesUrl.length > 0
-                            width: (parent.width - Theme.spacingS * (actionRow.buttons - 1)) / actionRow.buttons
-                            text: "Phone files"
-                            iconName: "folder_open"
-                            enabled: root.devices.length > 0
-                            // One phone: straight into its folder rather than the list of phones.
-                            onClicked: root.openFiles(root.devices.length === 1 && root.devices[0].files ? root.devices[0].files : root.filesUrl)
-                        }
-                    }
-
-                    // A link to open in the phones' browsers.
-                    Item {
-                        width: parent.width
-                        height: Math.max(linkField.implicitHeight, 30)
-                        visible: root.devices.length > 0
-
-                        DankTextField {
-                            id: linkField
-                            anchors.left: parent.left
-                            anchors.right: linkButton.left
-                            anchors.rightMargin: Theme.spacingS
-                            anchors.verticalCenter: parent.verticalCenter
-                            placeholderText: root.devices.length > 1 ? "Link to open on all phones" : "Link to open on the phone"
-                            text: root.linkDraft
-                            onTextEdited: root.linkDraft = text
-                            onAccepted: root.sendLink()
-                        }
-
-                        Rectangle {
-                            id: linkButton
-                            readonly property bool usable: root.linkDraft.trim().length > 0
-
-                            anchors.right: parent.right
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: 30
-                            height: 30
-                            radius: 10
-                            color: linkArea.containsMouse && usable ? Theme.widgetBaseHoverColor : Theme.surfaceContainer
-                            border.color: Theme.outline
-                            border.width: 1
-                            opacity: usable ? 1 : 0.5
-
-                            DankIcon {
-                                anchors.centerIn: parent
-                                name: "open_in_browser"
-                                size: 16
-                                color: Theme.surfaceText
-                            }
-
-                            MouseArea {
-                                id: linkArea
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                enabled: linkButton.usable
-                                cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                                onClicked: root.sendLink()
-                            }
-                        }
-                    }
-
                     Column {
                         visible: root.pairing
                         width: parent.width
                         spacing: Theme.spacingS
-                        topPadding: Theme.spacingS
 
                         // QR codes need a light background to scan, whatever the theme.
                         Rectangle {
@@ -909,217 +709,390 @@ PluginComponent {
                         }
                     }
 
-                    Item {
+                    Column {
+                        visible: root.devices.length > 0
                         width: parent.width
-                        height: Theme.spacingS
-                    }
+                        spacing: Theme.spacingS
 
-                    StyledRect {
-                        width: parent.width
-                        height: 1
-                        color: Theme.surfaceVariant
-                    }
+                        Repeater {
+                            model: root.devices
 
-                    StyledText {
-                        width: parent.width
-                        topPadding: Theme.spacingS
-                        text: "Settings"
-                        font.pixelSize: Theme.fontSizeMedium
-                        font.weight: Font.Bold
-                        color: Theme.surfaceText
-                    }
+                            delegate: Rectangle {
+                                id: card
+                                required property var modelData
+                                readonly property var battery: modelData.connected ? modelData.battery : null
+                                readonly property bool confirming: root.confirmUnpairId === modelData.id
 
-                    StyledText {
-                        visible: root.configError.length > 0 && root.statusError.length === 0
-                        width: parent.width
-                        text: root.configError
-                        font.pixelSize: Theme.fontSizeSmall
-                        color: Theme.error
-                        wrapMode: Text.WordWrap
-                    }
-
-                    // Received files: label on the left, small outlined button on the right.
-                    Item {
-                        width: parent.width
-                        height: Math.max(folderLabel.implicitHeight, 32)
-
-                        SettingLabel {
-                            id: folderLabel
-                            anchors.left: parent.left
-                            anchors.right: changeButton.left
-                            anchors.rightMargin: Theme.spacingM
-                            anchors.verticalCenter: parent.verticalCenter
-                            title: "Received files"
-                            subtitle: root.config ? root.config.downloads : "unavailable"
-                            elideSubtitle: true
-                        }
-
-                        Rectangle {
-                            id: changeButton
-                            readonly property bool usable: root.config !== null && !root.isOverridden("downloads")
-
-                            anchors.right: parent.right
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: 72
-                            height: 30
-                            radius: 10
-                            color: changeArea.containsMouse && usable ? Theme.widgetBaseHoverColor : Theme.surfaceContainer
-                            border.color: Theme.outline
-                            border.width: 1
-                            opacity: usable ? 1 : 0.5
-
-                            StyledText {
-                                anchors.centerIn: parent
-                                text: "Change"
-                                font.pixelSize: Theme.fontSizeSmall
-                                color: Theme.surfaceText
-                            }
-
-                            MouseArea {
-                                id: changeArea
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                enabled: changeButton.usable
-                                cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                                onClicked: root.openFileBrowser(folderBrowserLoader)
-                            }
-                        }
-                    }
-
-                    Item {
-                        width: parent.width
-                        height: Math.max(clipLabel.implicitHeight, clipToggle.height)
-
-                        SettingLabel {
-                            id: clipLabel
-                            anchors.left: parent.left
-                            anchors.right: clipToggle.left
-                            anchors.rightMargin: Theme.spacingM
-                            anchors.verticalCenter: parent.verticalCenter
-                            title: "Sync desktop clipboard"
-                            subtitle: "Copying on the desktop updates the phone"
-                        }
-
-                        DankToggle {
-                            id: clipToggle
-                            anchors.right: parent.right
-                            anchors.verticalCenter: parent.verticalCenter
-                            hideText: true
-                            checked: root.config ? root.config.clipboard : false
-                            enabled: root.config !== null && !root.isOverridden("clipboard")
-                            onToggled: checked => root.setConfig("clipboard", checked)
-                        }
-                    }
-
-                    Repeater {
-                        model: [
-                            { "key": "ring_action", "label": "While the phone rings" },
-                            { "key": "talk_action", "label": "During a call" }
-                        ]
-
-                        delegate: Column {
-                            id: callSetting
-                            required property var modelData
-
-                            width: contentColumn.width
-                            spacing: Theme.spacingXS
-
-                            SettingLabel {
                                 width: parent.width
-                                title: callSetting.modelData.label
-                            }
+                                height: 60
+                                radius: Theme.cornerRadius
+                                color: Theme.surfaceContainerHigh
 
-                            Row {
-                                width: parent.width
-                                spacing: Theme.spacingS
+                                Rectangle {
+                                    id: deviceIcon
+                                    anchors.left: parent.left
+                                    anchors.leftMargin: Theme.spacingM
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: 36
+                                    height: 36
+                                    radius: 18
+                                    color: card.modelData.connected ? Theme.primaryContainer : Theme.surfaceContainerHighest
 
-                                Repeater {
-                                    model: [
-                                        { "value": "pause", "label": "Pause media" },
-                                        { "value": "lower", "label": "Lower volume" },
-                                        { "value": "none", "label": "Nothing" }
-                                    ]
+                                    DankIcon {
+                                        anchors.centerIn: parent
+                                        name: "smartphone"
+                                        size: 20
+                                        color: card.modelData.connected ? Theme.primary : Theme.surfaceVariantText
+                                    }
+                                }
 
-                                    delegate: Rectangle {
-                                        required property var modelData
-                                        readonly property bool selected: root.config !== null && root.config[callSetting.modelData.key] === modelData.value
+                                Column {
+                                    anchors.left: deviceIcon.right
+                                    anchors.leftMargin: Theme.spacingM
+                                    anchors.right: rowButtons.left
+                                    anchors.rightMargin: Theme.spacingS
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    spacing: 2
 
-                                        width: (parent.width - Theme.spacingS * 2) / 3
-                                        height: 30
-                                        radius: 10
-                                        color: selected ? Theme.primary : (optionArea.containsMouse ? Theme.widgetBaseHoverColor : Theme.surfaceContainer)
-                                        border.color: selected ? Theme.primary : Theme.outline
-                                        border.width: 1
-                                        opacity: root.config !== null ? 1 : 0.5
+                                    StyledText {
+                                        width: parent.width
+                                        text: card.modelData.name
+                                        font.pixelSize: Theme.fontSizeMedium
+                                        font.weight: Font.Medium
+                                        color: Theme.surfaceText
+                                        elide: Text.ElideRight
+                                    }
+
+                                    Row {
+                                        width: parent.width
+                                        spacing: Theme.spacingXS
+
+                                        DankIcon {
+                                            visible: card.battery !== null
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            name: card.battery ? root.batteryIcon(card.battery) : ""
+                                            size: 14
+                                            color: root.batteryLow(card.battery) ? Theme.error : Theme.surfaceVariantText
+                                        }
 
                                         StyledText {
-                                            anchors.centerIn: parent
-                                            text: modelData.label
+                                            visible: card.battery !== null
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            text: card.battery ? card.battery.level + "%" : ""
                                             font.pixelSize: Theme.fontSizeSmall
-                                            color: parent.selected ? Theme.primaryText : Theme.surfaceText
+                                            color: root.batteryLow(card.battery) ? Theme.error : Theme.surfaceVariantText
                                         }
 
-                                        MouseArea {
-                                            id: optionArea
-                                            anchors.fill: parent
-                                            hoverEnabled: true
-                                            enabled: root.config !== null && !parent.selected
-                                            cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                                            onClicked: root.setConfig(callSetting.modelData.key, modelData.value)
+                                        StyledText {
+                                            visible: !card.modelData.connected || card.modelData.pending > 0
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            text: (card.battery !== null ? "· " : "")
+                                                + (card.modelData.connected ? "" : root.lastSeenText(card.modelData))
+                                                + (!card.modelData.connected && card.modelData.pending > 0 ? " · " : "")
+                                                + (card.modelData.pending > 0 ? card.modelData.pending + " queued" : "")
+                                            font.pixelSize: Theme.fontSizeSmall
+                                            color: Theme.surfaceVariantText
+                                            elide: Text.ElideRight
                                         }
+                                    }
+                                }
+
+                                // With one phone, sending files and opening its files are
+                                // the buttons below; per phone they only matter with several.
+                                Row {
+                                    id: rowButtons
+                                    anchors.right: parent.right
+                                    anchors.rightMargin: Theme.spacingS
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    spacing: 2
+
+                                    DankActionButton {
+                                        // Only a connected phone can ring.
+                                        visible: card.modelData.connected
+                                        iconName: "phonelink_ring"
+                                        iconColor: Theme.surfaceText
+                                        tooltipText: "Ring the phone"
+                                        onClicked: root.findPhone(card.modelData)
+                                    }
+
+                                    DankActionButton {
+                                        visible: !!card.modelData.files && root.devices.length > 1
+                                        enabled: card.modelData.connected
+                                        iconName: "folder_open"
+                                        iconColor: Theme.surfaceText
+                                        tooltipText: "Phone files"
+                                        onClicked: root.openFiles(card.modelData.files)
+                                    }
+
+                                    DankActionButton {
+                                        visible: root.devices.length > 1
+                                        iconName: "upload_file"
+                                        iconColor: Theme.surfaceText
+                                        tooltipText: "Send a file"
+                                        onClicked: root.sendFileTo(card.modelData)
+                                    }
+
+                                    DankActionButton {
+                                        iconName: card.confirming ? "check" : "link_off"
+                                        iconColor: card.confirming ? Theme.error : Theme.surfaceVariantText
+                                        backgroundColor: card.confirming ? Theme.withAlpha(Theme.error, 0.15) : "transparent"
+                                        tooltipText: card.confirming ? "Click again to unpair" : "Unpair"
+                                        onClicked: root.unpair(card.modelData)
                                     }
                                 }
                             }
                         }
                     }
 
-                    Column {
-                        visible: root.config !== null && (root.config.ring_action === "lower" || root.config.talk_action === "lower")
+                    Row {
+                        id: actionRow
+                        readonly property int buttons: root.filesUrl.length > 0 ? 2 : 1
+
+                        visible: root.devices.length > 0
                         width: parent.width
-                        spacing: Theme.spacingXS
+                        spacing: Theme.spacingS
 
-                        Item {
-                            width: parent.width
-                            height: volumeLabel.implicitHeight
-
-                            SettingLabel {
-                                id: volumeLabel
-                                anchors.left: parent.left
-                                anchors.right: volumeValue.left
-                                title: "Lowered volume"
-                                subtitle: "Share of the volume before the call"
-                            }
-
-                            StyledText {
-                                id: volumeValue
-                                anchors.right: parent.right
-                                anchors.verticalCenter: parent.verticalCenter
-                                text: volumeSlider.value + "%"
-                                font.pixelSize: Theme.fontSizeMedium
-                                color: Theme.surfaceText
-                            }
+                        DankButton {
+                            width: (parent.width - Theme.spacingS * (actionRow.buttons - 1)) / actionRow.buttons
+                            text: root.devices.length > 1 ? "Send to all" : "Send file"
+                            iconName: "upload_file"
+                            onClicked: root.sendFileTo(null)
                         }
 
-                        DankSlider {
-                            id: volumeSlider
-                            width: parent.width
-                            minimum: 5
-                            maximum: 90
-                            step: 5
-                            showValue: false
-                            value: root.config ? root.config.call_volume : 40
-                            onSliderValueChanged: newValue => value = newValue
-                            onSliderDragFinished: finalValue => root.setConfig("call_volume", finalValue)
+                        DankButton {
+                            visible: root.filesUrl.length > 0
+                            width: (parent.width - Theme.spacingS * (actionRow.buttons - 1)) / actionRow.buttons
+                            text: "Phone files"
+                            iconName: "folder_open"
+                            backgroundColor: Theme.surfaceContainerHigh
+                            textColor: Theme.surfaceText
+                            // One phone: straight into its folder rather than the list of phones.
+                            onClicked: root.openFiles(root.devices.length === 1 && root.devices[0].files ? root.devices[0].files : root.filesUrl)
                         }
                     }
 
-                    StyledText {
-                        visible: root.overridden.length > 0
+                    // A link to open in the phones' browsers.
+                    DankTextField {
+                        id: linkField
+                        visible: root.devices.length > 0
                         width: parent.width
-                        text: "Set by daemon flags: " + root.overridden.join(", ")
-                        font.pixelSize: Theme.fontSizeSmall
-                        color: Theme.surfaceVariantText
-                        wrapMode: Text.WordWrap
+                        leftIconName: "link"
+                        placeholderText: root.devices.length > 1 ? "Link to open on all phones" : "Link to open on the phone"
+                        text: root.linkDraft
+                        onTextEdited: root.linkDraft = text
+                        onAccepted: root.sendLink()
+                        trailingContent: Component {
+                            DankActionButton {
+                                iconName: "open_in_browser"
+                                iconColor: root.linkDraft.trim().length > 0 ? Theme.primary : Theme.surfaceVariantText
+                                enabled: root.linkDraft.trim().length > 0
+                                tooltipText: "Open on the phone"
+                                onClicked: root.sendLink()
+                            }
+                        }
+                    }
+
+                    // Settings, folded away: they rarely change.
+                    Rectangle {
+                        width: parent.width
+                        height: 40
+                        radius: Theme.cornerRadius
+                        color: settingsHeaderArea.containsMouse ? Theme.surfaceContainerHigh : "transparent"
+
+                        DankIcon {
+                            id: settingsIcon
+                            anchors.left: parent.left
+                            anchors.leftMargin: Theme.spacingS
+                            anchors.verticalCenter: parent.verticalCenter
+                            name: "settings"
+                            size: 18
+                            color: Theme.surfaceVariantText
+                        }
+
+                        StyledText {
+                            anchors.left: settingsIcon.right
+                            anchors.leftMargin: Theme.spacingS
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: "Settings"
+                            font.pixelSize: Theme.fontSizeMedium
+                            color: Theme.surfaceText
+                        }
+
+                        DankIcon {
+                            anchors.right: parent.right
+                            anchors.rightMargin: Theme.spacingS
+                            anchors.verticalCenter: parent.verticalCenter
+                            name: "expand_more"
+                            size: 20
+                            color: Theme.surfaceVariantText
+                            rotation: root.settingsOpen ? 180 : 0
+
+                            Behavior on rotation {
+                                NumberAnimation {
+                                    duration: 150
+                                }
+                            }
+                        }
+
+                        MouseArea {
+                            id: settingsHeaderArea
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: root.settingsOpen = !root.settingsOpen
+                        }
+                    }
+
+                    Column {
+                        visible: root.settingsOpen
+                        width: parent.width
+                        spacing: Theme.spacingM
+
+                        StyledText {
+                            visible: root.configError.length > 0 && root.statusError.length === 0
+                            width: parent.width
+                            text: root.configError
+                            font.pixelSize: Theme.fontSizeSmall
+                            color: Theme.error
+                            wrapMode: Text.WordWrap
+                        }
+
+                        Item {
+                            width: parent.width
+                            height: Math.max(folderLabel.implicitHeight, changeButton.height)
+
+                            SettingLabel {
+                                id: folderLabel
+                                anchors.left: parent.left
+                                anchors.right: changeButton.left
+                                anchors.rightMargin: Theme.spacingM
+                                anchors.verticalCenter: parent.verticalCenter
+                                title: "Received files"
+                                subtitle: root.config ? root.config.downloads : "unavailable"
+                                elideSubtitle: true
+                            }
+
+                            DankActionButton {
+                                id: changeButton
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                iconName: "drive_folder_upload"
+                                iconColor: Theme.surfaceText
+                                tooltipText: "Change folder"
+                                enabled: root.config !== null && !root.isOverridden("downloads")
+                                onClicked: root.openFileBrowser(folderBrowserLoader)
+                            }
+                        }
+
+                        Item {
+                            width: parent.width
+                            height: Math.max(clipLabel.implicitHeight, clipToggle.height)
+
+                            SettingLabel {
+                                id: clipLabel
+                                anchors.left: parent.left
+                                anchors.right: clipToggle.left
+                                anchors.rightMargin: Theme.spacingM
+                                anchors.verticalCenter: parent.verticalCenter
+                                title: "Sync desktop clipboard"
+                                subtitle: "Copying on the desktop updates the phone"
+                            }
+
+                            DankToggle {
+                                id: clipToggle
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                hideText: true
+                                checked: root.config ? root.config.clipboard : false
+                                enabled: root.config !== null && !root.isOverridden("clipboard")
+                                onToggled: checked => root.setConfig("clipboard", checked)
+                            }
+                        }
+
+                        Repeater {
+                            model: [
+                                { "key": "ring_action", "label": "While the phone rings" },
+                                { "key": "talk_action", "label": "During a call" }
+                            ]
+
+                            delegate: Column {
+                                id: callSetting
+                                required property var modelData
+                                readonly property var values: ["pause", "lower", "none"]
+
+                                width: parent.width
+                                spacing: Theme.spacingXS
+
+                                SettingLabel {
+                                    width: parent.width
+                                    title: callSetting.modelData.label
+                                }
+
+                                DankButtonGroup {
+                                    width: parent.width
+                                    fillWidth: true
+                                    size: "small"
+                                    checkEnabled: false
+                                    arrowKeysSelect: false
+                                    enabled: root.config !== null
+                                    model: ["Pause media", "Lower volume", "Nothing"]
+                                    currentIndex: root.config ? callSetting.values.indexOf(root.config[callSetting.modelData.key]) : -1
+                                    onSelectionChanged: (index, selected) => {
+                                        if (selected && root.config && root.config[callSetting.modelData.key] !== callSetting.values[index])
+                                            root.setConfig(callSetting.modelData.key, callSetting.values[index]);
+                                    }
+                                }
+                            }
+                        }
+
+                        Column {
+                            visible: root.config !== null && (root.config.ring_action === "lower" || root.config.talk_action === "lower")
+                            width: parent.width
+                            spacing: Theme.spacingXS
+
+                            Item {
+                                width: parent.width
+                                height: volumeLabel.implicitHeight
+
+                                SettingLabel {
+                                    id: volumeLabel
+                                    anchors.left: parent.left
+                                    anchors.right: volumeValue.left
+                                    title: "Lowered volume"
+                                    subtitle: "Share of the volume before the call"
+                                }
+
+                                StyledText {
+                                    id: volumeValue
+                                    anchors.right: parent.right
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: volumeSlider.value + "%"
+                                    font.pixelSize: Theme.fontSizeMedium
+                                    color: Theme.surfaceText
+                                }
+                            }
+
+                            DankSlider {
+                                id: volumeSlider
+                                width: parent.width
+                                minimum: 5
+                                maximum: 90
+                                step: 5
+                                showValue: false
+                                value: root.config ? root.config.call_volume : 40
+                                onSliderValueChanged: newValue => value = newValue
+                                onSliderDragFinished: finalValue => root.setConfig("call_volume", finalValue)
+                            }
+                        }
+
+                        StyledText {
+                            visible: root.overridden.length > 0
+                            width: parent.width
+                            text: "Set by daemon flags: " + root.overridden.join(", ")
+                            font.pixelSize: Theme.fontSizeSmall
+                            color: Theme.surfaceVariantText
+                            wrapMode: Text.WordWrap
+                        }
                     }
                 }
             }
