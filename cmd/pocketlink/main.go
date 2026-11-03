@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -33,6 +34,8 @@ commands:
   pair [-json] [-png FILE]
                     show a QR code for pairing a phone
   status [-json]    show paired devices
+  devices           list paired devices for other programs' menus, one per
+                    line: NAME<TAB>ID, connected ones first
   unpair <device>   forget a device (ID prefix or name)
   clip [text]       send text, piped stdin, or else the desktop clipboard
                     to all phones' clipboards
@@ -87,6 +90,8 @@ func main() {
 		err = runPair(args)
 	case "status":
 		err = runStatus(args)
+	case "devices":
+		err = runDevices(args)
 	case "unpair":
 		err = runUnpair(args)
 	case "clip":
@@ -140,6 +145,40 @@ func runPair(args []string) error {
 	qrterminal.GenerateHalfBlock(r.URI, qrterminal.L, os.Stdout)
 	fmt.Printf("\nScan with the pocketlink app, or pass to pocketlink-sim:\n%s\n\nValid until %s.\n",
 		r.URI, r.Expires.Format("15:04:05"))
+	return nil
+}
+
+// runDevices lists paired devices for menus in other programs (Tandem's
+// "Send to phone"): "NAME<TAB>ID" per line, connected ones first, and with
+// several devices a first line for all of them (an empty ID).
+func runDevices(args []string) error {
+	fs := flag.NewFlagSet("devices", flag.ExitOnError)
+	fs.Parse(args)
+	var r statusReply
+	if err := control.Call(control.Request{Cmd: "status"}, &r); err != nil {
+		return err
+	}
+	devs := slices.Clone(r.Devices)
+	slices.SortStableFunc(devs, func(a, b conn.DeviceStatus) int {
+		switch {
+		case a.Connected == b.Connected:
+			return 0
+		case a.Connected:
+			return -1
+		default:
+			return 1
+		}
+	})
+	if len(devs) > 1 {
+		fmt.Printf("All phones\t\n")
+	}
+	for _, d := range devs {
+		name := d.Name
+		if !d.Connected {
+			name += " (offline)"
+		}
+		fmt.Printf("%s\t%s\n", name, d.ID)
+	}
 	return nil
 }
 

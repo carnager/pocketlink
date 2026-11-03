@@ -1,0 +1,13 @@
+{
+  "tandem": 1,
+  "name": "pocketlink",
+  "description": "Send files and folders to your phone",
+  "actions": [
+    {
+      "id": "send",
+      "title": "Send to phone",
+      "run": ["pocketlink", "send", "-to", "%c", "%s"],
+      "choices": ["pocketlink", "devices"]
+    }
+  ]
+}

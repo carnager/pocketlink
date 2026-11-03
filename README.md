@@ -87,6 +87,7 @@ Open TCP 1764 in your firewall if you run one.
 ```sh
 pocketlink pair           # show QR code
 pocketlink status         # paired devices, connection state, queued frames
+pocketlink devices        # NAME<TAB>ID per phone, for menus in other programs
 pocketlink unpair NAME
 wl-paste | pocketlink clip
 pocketlink send [-to NAME] FILE|FOLDER...
@@ -163,7 +164,9 @@ every image to make a thumbnail.
 
 The AUR package adds *Send to phone* to the right-click menu of Dolphin,
 Thunar (*Send To → Phone*), Nemo and Nautilus (Nautilus needs
-`nautilus-python`). It sends the selected files and folders to all paired phones and
+`nautilus-python`), and a plugin for [Tandem](https://github.com/carnager/tandem-fm)
+(switch it on in Settings › Plugins; there *Send to phone* is a submenu
+of your phones). It sends the selected files and folders to all paired phones and
 reports the result as a desktop notification (`pocketlink send -notify`).
 Installing from source, copy them from `contrib/filemanager`:
 
@@ -173,6 +176,7 @@ install -Dm755 pocketlink-send.servicemenu.desktop ~/.local/share/kio/servicemen
 install -Dm644 pocketlink.thunar-sendto.desktop ~/.local/share/Thunar/sendto/pocketlink.desktop
 install -Dm644 pocketlink-send.nemo_action -t ~/.local/share/nemo/actions/
 install -Dm644 pocketlink-nautilus.py ~/.local/share/nautilus-python/extensions/pocketlink.py
+install -Dm644 tandem-plugin.json ~/.local/share/tandem-fm/plugins/pocketlink/plugin.json
 ```
 
 (Dolphin only runs service menus from your home directory if they're
