@@ -285,6 +285,8 @@ func runDaemon(args []string) error {
 			return sendLink(hub, store, req)
 		case "find":
 			return findPhones(ctx, hub, store, req)
+		case "dial":
+			return dialPhone(ctx, hub, store, sink, req)
 		case "config":
 			return settings.get(), nil
 		case "set":
@@ -569,6 +571,124 @@ func findPhones(ctx context.Context, hub *conn.Hub, store *pair.Store, req contr
 		}
 	}
 	return rang, errors.Join(errs...)
+}
+
+// dialReply says which phone dials, or, with Choosing, that the user
+// was asked in a notification to pick one of those phones.
+type dialReply struct {
+	Phone    string   `json:"phone,omitempty"`
+	Choosing []string `json:"choosing,omitempty"`
+}
+
+// dialPhone opens the dialer of one phone (req.ID), or of the only
+// connected one that can dial, with the number in req.Text filled in. With
+// several such phones it fails, or with req.Value "choose" shows a
+// notification with a button per phone.
+func dialPhone(ctx context.Context, hub *conn.Hub, store *pair.Store, sink *notify.Sink, req control.Request) (any, error) {
+	number, err := dialNumber(req.Text)
+	if err != nil {
+		return nil, err
+	}
+	if req.ID != "" {
+		id, err := hub.Resolve(req.ID)
+		if err != nil {
+			return nil, err
+		}
+		dev, _ := store.Get(id)
+		switch {
+		case !hub.Connected(id):
+			return nil, fmt.Errorf("%s is not connected", dev.Name)
+		case !hub.Supports(id, proto.FeatureDial):
+			return nil, fmt.Errorf("%s can't dial; update the app", dev.Name)
+		}
+		return dialReply{Phone: dev.Name}, dialOn(ctx, hub, dev, number)
+	}
+	var devs, old []pair.Device
+	for _, d := range store.List() {
+		switch {
+		case !hub.Connected(d.ID):
+		case hub.Supports(d.ID, proto.FeatureDial):
+			devs = append(devs, d)
+		default:
+			old = append(old, d)
+		}
+	}
+	switch {
+	case len(devs) == 1:
+		return dialReply{Phone: devs[0].Name}, dialOn(ctx, hub, devs[0], number)
+	case len(devs) > 1 && req.Value == "choose":
+		var choices, names []string
+		for _, d := range devs {
+			choices = append(choices, d.ID, d.Name)
+			names = append(names, d.Name)
+		}
+		err := sink.Choose("call-start", "Call "+number, "Dial on which phone?", choices, func(id string) {
+			dev, ok := store.Get(id)
+			if !ok {
+				return
+			}
+			// The click comes long after the CLI's request ended.
+			if err := dialOn(context.Background(), hub, dev, number); err != nil {
+				sink.Notice("dialog-error", "Could not dial "+number, err.Error())
+			}
+		})
+		return dialReply{Choosing: names}, err
+	case len(devs) > 1:
+		return nil, fmt.Errorf("%s are connected; pick one with -to", deviceNames(devs))
+	case len(old) > 0:
+		return nil, fmt.Errorf("%s can't dial; update the app", deviceNames(old))
+	default:
+		return nil, errors.New("no phone is connected")
+	}
+}
+
+func dialOn(ctx context.Context, hub *conn.Hub, dev pair.Device, number string) error {
+	cctx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	defer cancel()
+	if _, err := hub.Call(cctx, dev.ID, proto.TypeDial, proto.Dial{Number: number}, nil); err != nil {
+		return fmt.Errorf("%s: %w", dev.Name, err)
+	}
+	slog.Info("dialing", "device", dev.Name, "number", number)
+	return nil
+}
+
+func deviceNames(devs []pair.Device) string {
+	names := make([]string, len(devs))
+	for i, d := range devs {
+		names[i] = d.Name
+	}
+	return strings.Join(names, " and ")
+}
+
+// dialNumber turns a tel: URI (RFC 3966, also the common tel:// and
+// percent-encoded forms) or a plain phone number into the number to dial.
+// Parameters like ";ext=" or ";phone-context=" are dropped; visual
+// separators are kept, the dialer ignores them.
+func dialNumber(s string) (string, error) {
+	s = strings.TrimSpace(s)
+	if len(s) > 4 && strings.EqualFold(s[:4], "tel:") {
+		s = strings.TrimPrefix(s[4:], "//")
+		if u, err := url.PathUnescape(s); err == nil {
+			s = u
+		}
+	}
+	s, _, _ = strings.Cut(s, ";")
+	s = strings.TrimSpace(s)
+	digits := 0
+	for i, r := range s {
+		switch {
+		case r >= '0' && r <= '9':
+			digits++
+		case r == '+' && i == 0, r == '*', r == '#':
+		case strings.ContainsRune(" -.()/", r):
+		default:
+			return "", fmt.Errorf("%q is not a phone number", s)
+		}
+	}
+	if digits == 0 {
+		return "", fmt.Errorf("%q is not a phone number", s)
+	}
+	return s, nil
 }
 
 // batteryLevels holds what each phone last said about its battery.

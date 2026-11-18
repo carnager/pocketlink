@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Dial on phone
+GenericName=Phone dialer
+Comment=Open tel: links in the connected phone's dialer
+Icon=call-start
+Exec=pocketlink dial -notify %u
+MimeType=x-scheme-handler/tel;
+NoDisplay=true
+Categories=Network;Telephony;

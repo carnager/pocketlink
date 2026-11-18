@@ -29,7 +29,7 @@ for target in amd64::x86_64 arm64::aarch64 arm:7:armv7 386::i686 riscv64::riscv6
 
 	GOOS=linux GOARCH=$arch GOARM=$goarm CGO_ENABLED=0 \
 		go build -trimpath -ldflags="-s -w -buildid=" -o "$dir/$pkg/pocketlink" ./cmd/pocketlink
-	cp README.md LICENSE contrib/pocketlink.service contrib/pocketlink-settings.desktop "$dir/$pkg/"
+	cp README.md LICENSE contrib/pocketlink.service contrib/pocketlink-settings.desktop contrib/pocketlink-dial.desktop "$dir/$pkg/"
 	cp -r contrib/filemanager "$dir/$pkg/"
 	mkdir -p "$dir/$pkg/dms"
 	cp -r contrib/dms/pocketlink "$dir/$pkg/dms/"

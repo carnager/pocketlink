@@ -29,6 +29,7 @@ const (
 	TypeLinkOpen     = "link.open"
 	TypeBattery      = "battery"
 	TypeFind         = "find"
+	TypeDial         = "dial"
 	TypeReply        = "reply"
 )
 
@@ -60,6 +61,7 @@ const (
 	FeatureFilesTar      = "files.tar"       // accepts several files or folders as one tar offer
 	FeatureLinkOpen      = "link.open"       // opens links sent with link.open
 	FeatureFind          = "find"            // answers find requests by ringing
+	FeatureDial          = "dial"            // answers dial requests by opening the dialer
 )
 
 type Hello struct {
@@ -104,6 +106,13 @@ type Battery struct {
 // queued: a phone that rang hours later would only startle someone.
 type Find struct {
 	Stop bool `json:"stop,omitempty"`
+}
+
+// Dial is a live request to open the phone's dialer with Number filled in,
+// for the user to place the call. Like Find it's never queued: a dialer
+// popping up long after the click would only confuse.
+type Dial struct {
+	Number string `json:"number"`
 }
 
 // CallState reports a phone call. Event is "ringing" (incoming), "talking"

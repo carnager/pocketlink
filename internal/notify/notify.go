@@ -156,6 +156,24 @@ func (s *Sink) IncomingCall(dev pair.Device, replaces uint32, caller string, pho
 		})
 }
 
+// Choose shows a notification with one action per choice, given as
+// key, label pairs, and calls onPick with the key of the one clicked.
+func (s *Sink) Choose(icon, title, body string, choices []string, onPick func(key string)) error {
+	_, err := s.show("pocketlink", 0, icon, title, body, choices, func(action, _ string) {
+		if action != "default" {
+			onPick(action)
+		}
+	})
+	return err
+}
+
+// Notice shows a one-off notification without actions through the
+// daemon's own connection.
+func (s *Sink) Notice(icon, title, body string) error {
+	_, err := s.show("pocketlink", 0, icon, title, body, nil, nil)
+	return err
+}
+
 // MissedCall replaces the ringing notification with a missed-call one.
 func (s *Sink) MissedCall(dev pair.Device, replaces uint32, caller string, photo []byte) error {
 	_, err := s.showWith(dev.Name, replaces, "call-missed", "Missed call", caller, imageHints(photo), nil, nil)

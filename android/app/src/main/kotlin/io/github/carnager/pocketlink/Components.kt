@@ -69,6 +69,7 @@ object Notifs {
     const val MEDIA = "media"
     const val LINKS = "links"
     const val FIND = "find"
+    const val DIAL = "dial"
     const val LINK_ID = 1
 
     /**
@@ -102,6 +103,7 @@ object Notifs {
                 NotificationChannel(FILES, "Finished transfers", NotificationManager.IMPORTANCE_DEFAULT),
                 NotificationChannel(MEDIA, "Media remote", NotificationManager.IMPORTANCE_LOW),
                 NotificationChannel(LINKS, "Links from computers", NotificationManager.IMPORTANCE_HIGH),
+                NotificationChannel(DIAL, "Numbers to dial from computers", NotificationManager.IMPORTANCE_HIGH),
                 // The ringing itself is played on the alarm stream, not by the channel.
                 NotificationChannel(FIND, "Find my phone", NotificationManager.IMPORTANCE_HIGH).apply { setSound(null, null) },
             )
@@ -109,7 +111,7 @@ object Notifs {
     }
 }
 
-/** Opens links sent from a computer. */
+/** Opens links, and the dialer for numbers, sent from a computer. */
 object Browser {
     /** Whether [s] is an http or https link, the only kind sent or opened. */
     fun isWebUrl(s: String): Boolean {
@@ -132,28 +134,47 @@ object Browser {
             return
         }
         val view = Intent(Intent.ACTION_VIEW, Uri.parse(url)).addCategory(Intent.CATEGORY_BROWSABLE)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        startOrNotify(ctx, view, Notifs.LINKS, "link", "Link from $computer", url)
+    }
+
+    /**
+     * Opens the dialer with [number] filled in, for the user to place the
+     * call. ACTION_DIAL needs no permission and never calls by itself.
+     */
+    fun dial(ctx: Context, computer: String, number: String) {
+        if (number.isBlank() || number.none(Char::isDigit)) {
+            Log.w(TAG, "ignoring number to dial from $computer that has no digits")
+            return
+        }
+        val dial = Intent(Intent.ACTION_DIAL, Uri.fromParts("tel", number, null))
+        startOrNotify(ctx, dial, Notifs.DIAL, "dial", "Call from $computer", number)
+    }
+
+    /**
+     * Starts [intent], or, if Android won't let the app start activities
+     * from the background, posts a notification that starts it when tapped.
+     */
+    private fun startOrNotify(ctx: Context, intent: Intent, channel: String, tag: String, title: String, text: String) {
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         if (canOpenDirectly(ctx)) {
             try {
-                ctx.startActivity(view)
+                ctx.startActivity(intent)
                 return
             } catch (e: Exception) {
-                Log.w(TAG, "opening link", e)
+                Log.w(TAG, "starting ${intent.action}", e)
             }
         }
-        val id = url.hashCode()
-        val n = Notification.Builder(ctx, Notifs.LINKS)
+        val id = text.hashCode()
+        val n = Notification.Builder(ctx, channel)
             .setSmallIcon(R.drawable.ic_stat)
-            .setContentTitle("Link from $computer")
-            .setContentText(url)
-            .setContentIntent(PendingIntent.getActivity(ctx, id, view, PendingIntent.FLAG_IMMUTABLE))
+            .setContentTitle(title)
+            .setContentText(text)
+            .setContentIntent(PendingIntent.getActivity(ctx, id, intent, PendingIntent.FLAG_IMMUTABLE))
             .setAutoCancel(true)
             .setCategory(Notification.CATEGORY_MESSAGE)
             .build()
-        ctx.getSystemService(NotificationManager::class.java).notify(TAG_LINK, id, n)
+        ctx.getSystemService(NotificationManager::class.java).notify(tag, id, n)
     }
-
-    private const val TAG_LINK = "link"
 
     private fun canOpenDirectly(ctx: Context): Boolean {
         if (Settings.canDrawOverlays(ctx)) return true

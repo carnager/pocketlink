@@ -124,6 +124,21 @@ volume, even on silent, until stopped from the phone's notification, with
 is connected, so it never rings out of the blue later. `pocketlink status`
 shows connected phones' battery.
 
+`pocketlink dial NUMBER` opens the connected phone's dialer with the number
+filled in; you tap call on the phone. It also takes `tel:` links, and
+`contrib/pocketlink-dial.desktop` (installed by the AUR package) makes it the
+handler for them, so clicking a phone number in the browser dials on the
+phone. Make it the default with
+
+```sh
+xdg-mime default pocketlink-dial.desktop x-scheme-handler/tel
+```
+
+With several phones connected, a `tel:` link asks in a notification which
+one to dial on; on the command line, pick one with `-to`. Like `find`, it only
+works while the phone is connected. Without *Display over other apps*, the
+number arrives as a notification to tap, as links do.
+
 `pocketlink settings` (or *pocketlink settings* in your app launcher) opens a
 settings page in the browser: your phones, pairing with the QR code on the
 page, and all settings. The daemon serves it only on demand, on a random

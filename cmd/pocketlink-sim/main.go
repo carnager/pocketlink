@@ -202,8 +202,8 @@ func (cl *client) session(c *websocket.Conn, lines <-chan string) error {
 	defer cancel()
 	defer c.CloseNow()
 
-	// Links from the desktop are only printed, and find requests answered.
-	h := proto.Hello{Name: cl.name, Platform: "sim", Features: []string{proto.FeatureLinkOpen, proto.FeatureFind}}
+	// Links from the desktop are only printed, and find and dial requests answered.
+	h := proto.Hello{Name: cl.name, Platform: "sim", Features: []string{proto.FeatureLinkOpen, proto.FeatureFind, proto.FeatureDial}}
 	if cl.fs != nil {
 		h.Features = append(h.Features, proto.FeatureFS, proto.FeatureFSStream, proto.FeatureFSWriteCreate)
 	}
@@ -492,7 +492,7 @@ func (cl *client) answer(ctx context.Context, c *websocket.Conn, e proto.Envelop
 		r = cl.stream(e)
 	} else if cl.fs != nil && strings.HasPrefix(e.Type, "fs.") {
 		r, out = cl.fs.Handle(e, payload)
-	} else if e.Type == proto.TypeFind {
+	} else if e.Type == proto.TypeFind || e.Type == proto.TypeDial {
 		r, _ = proto.Reply(e.Req, struct{}{})
 	} else {
 		r = proto.ErrorReply(e.Req, proto.ErrUnsupported, e.Type)

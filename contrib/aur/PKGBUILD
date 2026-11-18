@@ -59,6 +59,8 @@ package() {
 
   # The settings page, for app launchers.
   install -Dm644 contrib/pocketlink-settings.desktop -t "$pkgdir/usr/share/applications/"
+  # The tel: link handler.
+  install -Dm644 contrib/pocketlink-dial.desktop -t "$pkgdir/usr/share/applications/"
 
   # "Send to phone" in file managers' context menus.
   local fm=contrib/filemanager

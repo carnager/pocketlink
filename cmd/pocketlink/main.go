@@ -48,6 +48,10 @@ commands:
   find [-to DEV] [-stop]
                     make a phone ring loudly, even on silent (default: all
                     connected phones); -stop ends it
+  dial [-to DEV] [-notify] NUMBER|tel:URI
+                    open the phone's dialer with a number filled in (default:
+                    the connected phone; with -notify and several, asks in
+                    a notification); handles tel: links on the desktop
   settings [-print]  open the settings page in the browser (or print its address)
   config [-json] [KEY VALUE]
                     show settings, or change one (name, listen, downloads,
@@ -102,6 +106,8 @@ func main() {
 		err = runLink(args)
 	case "find":
 		err = runFind(args)
+	case "dial":
+		err = runDial(args)
 	case "config":
 		err = runConfig(args)
 	case "settings":
@@ -446,6 +452,44 @@ func runLink(args []string) error {
 	}
 	for _, name := range sent {
 		fmt.Println("sent to", name)
+	}
+	return err
+}
+
+func runDial(args []string) error {
+	fs := flag.NewFlagSet("dial", flag.ExitOnError)
+	to := fs.String("to", "", "device ID prefix or name")
+	notice := fs.Bool("notify", false, "report the result as a desktop notification")
+	fs.Parse(args)
+	if fs.NArg() == 0 {
+		return errors.New("usage: pocketlink dial [-to DEVICE] [-notify] NUMBER|tel:URI")
+	}
+	number := strings.Join(fs.Args(), " ")
+	shown := strings.TrimPrefix(strings.TrimPrefix(number, "tel:"), "//")
+	req := control.Request{Cmd: "dial", ID: *to, Text: number}
+	if *notice {
+		// With several phones, let the user pick one in a notification.
+		req.Value = "choose"
+	}
+	var r dialReply
+	err := control.Call(req, &r)
+	if *notice && len(r.Choosing) == 0 {
+		var nerr error
+		if err != nil {
+			nerr = notify.Notice("dialog-error", "Could not dial "+shown, err.Error())
+		} else {
+			nerr = notify.Notice("call-start", "Dialing on "+r.Phone, shown)
+		}
+		if nerr != nil {
+			fmt.Fprintln(os.Stderr, "pocketlink: notification:", nerr)
+		}
+	}
+	switch {
+	case err != nil:
+	case len(r.Choosing) > 0:
+		fmt.Println("pick a phone in the notification:", strings.Join(r.Choosing, ", "))
+	default:
+		fmt.Println("dialing on", r.Phone)
 	}
 	return err
 }
