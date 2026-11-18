@@ -30,8 +30,8 @@ android {
         applicationId = "io.github.carnager.pocketlink"
         minSdk = 29
         targetSdk = 36
-        versionCode = 13
-        versionName = "0.8.0"
+        versionCode = 14
+        versionName = "0.9.0"
     }
 
     signingConfigs {
